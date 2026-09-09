@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+// package order.v1 is the versioned contract for the Order Service.
+// Breaking changes get a new version (v2), not edits here.
+package order.v1;
+
+option go_package = "github.com/Afari-Richmond/payflow/proto/order/v1;orderv1";
+
+// OrderService is the gRPC contract exposed by order-service.
+//
+// Ping is a temporary connectivity-proof method for Milestone 3 — it
+// verifies the api-gateway -> order-service gRPC round trip before any
+// real business logic exists. It is expected to be removed once
+// CreateOrder (Milestone 5) lands.
+service OrderService {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+}
