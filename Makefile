@@ -1,6 +1,8 @@
-.PHONY: build test fmt vet tidy
+.PHONY: build test fmt vet tidy docker-up docker-down migrate-order-up migrate-order-down
 
 SERVICES := ./services/api-gateway/... ./services/order-service/... ./services/payment-service/...
+
+ORDER_DB_URL := postgres://payflow:payflow@localhost:5433/payflow_order?sslmode=disable
 
 build:
 	go build $(SERVICES)
@@ -16,3 +18,15 @@ vet:
 
 tidy:
 	go work sync
+
+docker-up:
+	docker compose -f deployments/docker-compose.yml up -d
+
+docker-down:
+	docker compose -f deployments/docker-compose.yml down
+
+migrate-order-up:
+	migrate -database "$(ORDER_DB_URL)" -path services/order-service/migrations up
+
+migrate-order-down:
+	migrate -database "$(ORDER_DB_URL)" -path services/order-service/migrations down
