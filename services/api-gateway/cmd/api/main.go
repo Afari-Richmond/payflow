@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Afari-Richmond/payflow/services/api-gateway/internal/client"
 	"github.com/Afari-Richmond/payflow/services/api-gateway/internal/config"
 	"github.com/Afari-Richmond/payflow/services/api-gateway/internal/transport/httpapi"
 )
@@ -25,7 +26,15 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := config.Load()
-	router := httpapi.NewRouter(logger)
+
+	orderClient, err := client.NewOrderClient(cfg.OrderServiceAddr)
+	if err != nil {
+		logger.Error("failed to create order-service client", "error", err)
+		os.Exit(1)
+	}
+	defer orderClient.Close()
+
+	router := httpapi.NewRouter(logger, orderClient)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

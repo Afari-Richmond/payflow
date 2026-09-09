@@ -11,7 +11,7 @@ import (
 )
 
 // NewRouter builds the api-gateway's HTTP router.
-func NewRouter(logger *slog.Logger) *gin.Engine {
+func NewRouter(logger *slog.Logger, orderPinger OrderPinger) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
@@ -21,6 +21,7 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	router.GET("/health", HealthHandler)
 	router.GET("/docs", DocsHandler)
 	router.GET("/docs/swagger.json", SwaggerSpecHandler)
+	router.GET("/internal/order-ping", OrderPingHandler(orderPinger))
 
 	return router
 }
