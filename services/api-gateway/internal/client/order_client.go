@@ -11,6 +11,19 @@ import (
 	orderv1 "github.com/Afari-Richmond/payflow/proto/order/v1"
 )
 
+// Order is the gateway's own DTO for an order, decoupled from the
+// generated protobuf type — the HTTP layer never depends on gRPC
+// message shapes directly.
+type Order struct {
+	ID          string
+	Email       string
+	AmountMinor int64
+	Currency    string
+	Status      string
+	CreatedAt   string
+	UpdatedAt   string
+}
+
 // OrderClient wraps the gRPC connection to order-service.
 type OrderClient struct {
 	conn   *grpc.ClientConn
@@ -31,15 +44,27 @@ func NewOrderClient(addr string) (*OrderClient, error) {
 	}, nil
 }
 
-// Ping calls order-service's temporary Ping RPC, proving the gateway ->
-// order-service gRPC round trip. Removed once CreateOrder (Milestone 5)
-// replaces it with a real order-service client method.
-func (c *OrderClient) Ping(ctx context.Context, message string) (string, error) {
-	resp, err := c.client.Ping(ctx, &orderv1.PingRequest{Message: message})
+// CreateOrder calls order-service's CreateOrder RPC.
+func (c *OrderClient) CreateOrder(ctx context.Context, email string, amountMinor int64, currency string) (*Order, error) {
+	resp, err := c.client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
+		Email:       email,
+		AmountMinor: amountMinor,
+		Currency:    currency,
+	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return resp.GetMessage(), nil
+
+	o := resp.GetOrder()
+	return &Order{
+		ID:          o.GetId(),
+		Email:       o.GetEmail(),
+		AmountMinor: o.GetAmountMinor(),
+		Currency:    o.GetCurrency(),
+		Status:      o.GetStatus(),
+		CreatedAt:   o.GetCreatedAt(),
+		UpdatedAt:   o.GetUpdatedAt(),
+	}, nil
 }
 
 // Close closes the underlying gRPC connection.
