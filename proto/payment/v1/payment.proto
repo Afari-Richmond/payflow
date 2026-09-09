@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+// package payment.v1 is the versioned contract for the Payment
+// Service. Breaking changes get a new version (v2), not edits here.
+package payment.v1;
+
+option go_package = "github.com/Afari-Richmond/payflow/proto/payment/v1;paymentv1";
+
+// PaymentService is the gRPC contract exposed by payment-service.
+service PaymentService {
+  // CreatePayment records a payment attempt for an order, in PENDING
+  // status. It does not talk to Paystack — that's InitializeTransaction,
+  // added in Milestone 7 behind the PaymentProvider abstraction.
+  rpc CreatePayment(CreatePaymentRequest) returns (CreatePaymentResponse);
+}
+
+message CreatePaymentRequest {
+  string order_id = 1;
+  int64 amount_minor = 2;
+  string currency = 3;
+}
+
+// Payment is the wire representation of a payment. AmountMinor is
+// always an integer minor-currency-unit amount — never a float.
+message Payment {
+  string id = 1;
+  string order_id = 2;
+  int64 amount_minor = 3;
+  string currency = 4;
+  string status = 5;
+  string provider_reference = 6; // empty until Milestone 7
+  string created_at = 7;         // RFC3339
+  string updated_at = 8;         // RFC3339
+}
+
+message CreatePaymentResponse {
+  Payment payment = 1;
+}
