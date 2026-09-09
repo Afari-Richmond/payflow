@@ -1,0 +1,35 @@
+# Development-only material — planning, methodology, ADRs, progress log.
+# Kept locally for the author's own reference; not part of the public
+# deliverable, so never tracked or pushed.
+/docs/
+/initial prompt.md
+
+# Go build artifacts
+/bin/
+*.exe
+*.test
+*.out
+
+# Go workspace-local files (each developer's own, not shared)
+go.work.sum
+
+# Root-level Node tooling (commitlint/husky only — no app code lives here)
+/node_modules/
+
+# Env files — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Docker
+*.pid
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Logs
+*.log
