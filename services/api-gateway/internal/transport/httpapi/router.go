@@ -19,6 +19,8 @@ func NewRouter(logger *slog.Logger) *gin.Engine {
 	router.Use(requestLogger(logger))
 
 	router.GET("/health", HealthHandler)
+	router.GET("/docs", DocsHandler)
+	router.GET("/docs/swagger.json", SwaggerSpecHandler)
 
 	return router
 }
