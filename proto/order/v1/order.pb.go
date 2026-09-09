@@ -24,27 +24,29 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type PingRequest struct {
+type CreateOrderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	AmountMinor   int64                  `protobuf:"varint,2,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PingRequest) Reset() {
-	*x = PingRequest{}
+func (x *CreateOrderRequest) Reset() {
+	*x = CreateOrderRequest{}
 	mi := &file_order_v1_order_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PingRequest) String() string {
+func (x *CreateOrderRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PingRequest) ProtoMessage() {}
+func (*CreateOrderRequest) ProtoMessage() {}
 
-func (x *PingRequest) ProtoReflect() protoreflect.Message {
+func (x *CreateOrderRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_order_v1_order_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -56,39 +58,61 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
-func (*PingRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateOrderRequest.ProtoReflect.Descriptor instead.
+func (*CreateOrderRequest) Descriptor() ([]byte, []int) {
 	return file_order_v1_order_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *PingRequest) GetMessage() string {
+func (x *CreateOrderRequest) GetEmail() string {
 	if x != nil {
-		return x.Message
+		return x.Email
 	}
 	return ""
 }
 
-type PingResponse struct {
+func (x *CreateOrderRequest) GetAmountMinor() int64 {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return 0
+}
+
+func (x *CreateOrderRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+// Order is the wire representation of an order. AmountMinor is always
+// an integer minor-currency-unit amount — never a float.
+type Order struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	AmountMinor   int64                  `protobuf:"varint,3,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	Currency      string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // RFC3339
+	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"` // RFC3339
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PingResponse) Reset() {
-	*x = PingResponse{}
+func (x *Order) Reset() {
+	*x = Order{}
 	mi := &file_order_v1_order_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PingResponse) String() string {
+func (x *Order) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PingResponse) ProtoMessage() {}
+func (*Order) ProtoMessage() {}
 
-func (x *PingResponse) ProtoReflect() protoreflect.Message {
+func (x *Order) ProtoReflect() protoreflect.Message {
 	mi := &file_order_v1_order_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -100,29 +124,127 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
-func (*PingResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use Order.ProtoReflect.Descriptor instead.
+func (*Order) Descriptor() ([]byte, []int) {
 	return file_order_v1_order_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *PingResponse) GetMessage() string {
+func (x *Order) GetId() string {
 	if x != nil {
-		return x.Message
+		return x.Id
 	}
 	return ""
+}
+
+func (x *Order) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *Order) GetAmountMinor() int64 {
+	if x != nil {
+		return x.AmountMinor
+	}
+	return 0
+}
+
+func (x *Order) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *Order) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *Order) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *Order) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type CreateOrderResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Order         *Order                 `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateOrderResponse) Reset() {
+	*x = CreateOrderResponse{}
+	mi := &file_order_v1_order_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateOrderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateOrderResponse) ProtoMessage() {}
+
+func (x *CreateOrderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_order_v1_order_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateOrderResponse.ProtoReflect.Descriptor instead.
+func (*CreateOrderResponse) Descriptor() ([]byte, []int) {
+	return file_order_v1_order_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateOrderResponse) GetOrder() *Order {
+	if x != nil {
+		return x.Order
+	}
+	return nil
 }
 
 var File_order_v1_order_proto protoreflect.FileDescriptor
 
 const file_order_v1_order_proto_rawDesc = "" +
 	"\n" +
-	"\x14order/v1/order.proto\x12\border.v1\"'\n" +
-	"\vPingRequest\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"(\n" +
-	"\fPingResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage2E\n" +
-	"\fOrderService\x125\n" +
-	"\x04Ping\x12\x15.order.v1.PingRequest\x1a\x16.order.v1.PingResponseB:Z8github.com/Afari-Richmond/payflow/proto/order/v1;orderv1b\x06proto3"
+	"\x14order/v1/order.proto\x12\border.v1\"i\n" +
+	"\x12CreateOrderRequest\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12!\n" +
+	"\famount_minor\x18\x02 \x01(\x03R\vamountMinor\x12\x1a\n" +
+	"\bcurrency\x18\x03 \x01(\tR\bcurrency\"\xc2\x01\n" +
+	"\x05Order\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
+	"\famount_minor\x18\x03 \x01(\x03R\vamountMinor\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt\"<\n" +
+	"\x13CreateOrderResponse\x12%\n" +
+	"\x05order\x18\x01 \x01(\v2\x0f.order.v1.OrderR\x05order2Z\n" +
+	"\fOrderService\x12J\n" +
+	"\vCreateOrder\x12\x1c.order.v1.CreateOrderRequest\x1a\x1d.order.v1.CreateOrderResponseB:Z8github.com/Afari-Richmond/payflow/proto/order/v1;orderv1b\x06proto3"
 
 var (
 	file_order_v1_order_proto_rawDescOnce sync.Once
@@ -136,19 +258,21 @@ func file_order_v1_order_proto_rawDescGZIP() []byte {
 	return file_order_v1_order_proto_rawDescData
 }
 
-var file_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_order_v1_order_proto_goTypes = []any{
-	(*PingRequest)(nil),  // 0: order.v1.PingRequest
-	(*PingResponse)(nil), // 1: order.v1.PingResponse
+	(*CreateOrderRequest)(nil),  // 0: order.v1.CreateOrderRequest
+	(*Order)(nil),               // 1: order.v1.Order
+	(*CreateOrderResponse)(nil), // 2: order.v1.CreateOrderResponse
 }
 var file_order_v1_order_proto_depIdxs = []int32{
-	0, // 0: order.v1.OrderService.Ping:input_type -> order.v1.PingRequest
-	1, // 1: order.v1.OrderService.Ping:output_type -> order.v1.PingResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: order.v1.CreateOrderResponse.order:type_name -> order.v1.Order
+	0, // 1: order.v1.OrderService.CreateOrder:input_type -> order.v1.CreateOrderRequest
+	2, // 2: order.v1.OrderService.CreateOrder:output_type -> order.v1.CreateOrderResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_order_v1_order_proto_init() }
@@ -162,7 +286,7 @@ func file_order_v1_order_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_order_v1_order_proto_rawDesc), len(file_order_v1_order_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

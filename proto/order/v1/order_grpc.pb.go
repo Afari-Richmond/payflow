@@ -22,7 +22,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OrderService_Ping_FullMethodName = "/order.v1.OrderService/Ping"
+	OrderService_CreateOrder_FullMethodName = "/order.v1.OrderService/CreateOrder"
 )
 
 // OrderServiceClient is the client API for OrderService service.
@@ -30,13 +30,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // OrderService is the gRPC contract exposed by order-service.
-//
-// Ping is a temporary connectivity-proof method for Milestone 3 — it
-// verifies the api-gateway -> order-service gRPC round trip before any
-// real business logic exists. It is expected to be removed once
-// CreateOrder (Milestone 5) lands.
 type OrderServiceClient interface {
-	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
+	CreateOrder(ctx context.Context, in *CreateOrderRequest, opts ...grpc.CallOption) (*CreateOrderResponse, error)
 }
 
 type orderServiceClient struct {
@@ -47,10 +42,10 @@ func NewOrderServiceClient(cc grpc.ClientConnInterface) OrderServiceClient {
 	return &orderServiceClient{cc}
 }
 
-func (c *orderServiceClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error) {
+func (c *orderServiceClient) CreateOrder(ctx context.Context, in *CreateOrderRequest, opts ...grpc.CallOption) (*CreateOrderResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PingResponse)
-	err := c.cc.Invoke(ctx, OrderService_Ping_FullMethodName, in, out, cOpts...)
+	out := new(CreateOrderResponse)
+	err := c.cc.Invoke(ctx, OrderService_CreateOrder_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +57,8 @@ func (c *orderServiceClient) Ping(ctx context.Context, in *PingRequest, opts ...
 // for forward compatibility.
 //
 // OrderService is the gRPC contract exposed by order-service.
-//
-// Ping is a temporary connectivity-proof method for Milestone 3 — it
-// verifies the api-gateway -> order-service gRPC round trip before any
-// real business logic exists. It is expected to be removed once
-// CreateOrder (Milestone 5) lands.
 type OrderServiceServer interface {
-	Ping(context.Context, *PingRequest) (*PingResponse, error)
+	CreateOrder(context.Context, *CreateOrderRequest) (*CreateOrderResponse, error)
 	mustEmbedUnimplementedOrderServiceServer()
 }
 
@@ -79,8 +69,8 @@ type OrderServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedOrderServiceServer struct{}
 
-func (UnimplementedOrderServiceServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+func (UnimplementedOrderServiceServer) CreateOrder(context.Context, *CreateOrderRequest) (*CreateOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOrder not implemented")
 }
 func (UnimplementedOrderServiceServer) mustEmbedUnimplementedOrderServiceServer() {}
 func (UnimplementedOrderServiceServer) testEmbeddedByValue()                      {}
@@ -103,20 +93,20 @@ func RegisterOrderServiceServer(s grpc.ServiceRegistrar, srv OrderServiceServer)
 	s.RegisterService(&OrderService_ServiceDesc, srv)
 }
 
-func _OrderService_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PingRequest)
+func _OrderService_CreateOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOrderRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(OrderServiceServer).Ping(ctx, in)
+		return srv.(OrderServiceServer).CreateOrder(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: OrderService_Ping_FullMethodName,
+		FullMethod: OrderService_CreateOrder_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OrderServiceServer).Ping(ctx, req.(*PingRequest))
+		return srv.(OrderServiceServer).CreateOrder(ctx, req.(*CreateOrderRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -129,8 +119,8 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*OrderServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Ping",
-			Handler:    _OrderService_Ping_Handler,
+			MethodName: "CreateOrder",
+			Handler:    _OrderService_CreateOrder_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
