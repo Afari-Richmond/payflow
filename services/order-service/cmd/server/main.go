@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -44,6 +46,10 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	orderv1.RegisterOrderServiceServer(grpcServer, grpcapi.NewOrderServer(orderService))
+
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
 
 	serverErr := make(chan error, 1)
 	go func() {
