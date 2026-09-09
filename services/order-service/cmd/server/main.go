@@ -11,9 +11,13 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	orderv1 "github.com/Afari-Richmond/payflow/proto/order/v1"
+	"github.com/Afari-Richmond/payflow/services/order-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/config"
+	"github.com/Afari-Richmond/payflow/services/order-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/transport/grpcapi"
 )
 
@@ -23,6 +27,15 @@ func main() {
 
 	cfg := config.Load()
 
+	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+
+	repo := repository.NewGormOrderRepository(db)
+	orderService := application.NewOrderService(repo)
+
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
 		logger.Error("failed to listen", "error", err)
@@ -30,7 +43,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	orderv1.RegisterOrderServiceServer(grpcServer, grpcapi.NewOrderServer())
+	orderv1.RegisterOrderServiceServer(grpcServer, grpcapi.NewOrderServer(orderService))
 
 	serverErr := make(chan error, 1)
 	go func() {
