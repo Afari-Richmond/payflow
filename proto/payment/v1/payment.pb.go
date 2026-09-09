@@ -27,8 +27,9 @@ const (
 type CreatePaymentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrderId       string                 `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
-	AmountMinor   int64                  `protobuf:"varint,2,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
-	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	AmountMinor   int64                  `protobuf:"varint,3,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
+	Currency      string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -70,6 +71,13 @@ func (x *CreatePaymentRequest) GetOrderId() string {
 	return ""
 }
 
+func (x *CreatePaymentRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
 func (x *CreatePaymentRequest) GetAmountMinor() int64 {
 	if x != nil {
 		return x.AmountMinor
@@ -93,9 +101,9 @@ type Payment struct {
 	AmountMinor       int64                  `protobuf:"varint,3,opt,name=amount_minor,json=amountMinor,proto3" json:"amount_minor,omitempty"`
 	Currency          string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	Status            string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	ProviderReference string                 `protobuf:"bytes,6,opt,name=provider_reference,json=providerReference,proto3" json:"provider_reference,omitempty"` // empty until Milestone 7
-	CreatedAt         string                 `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                         // RFC3339
-	UpdatedAt         string                 `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`                         // RFC3339
+	ProviderReference string                 `protobuf:"bytes,6,opt,name=provider_reference,json=providerReference,proto3" json:"provider_reference,omitempty"`
+	CreatedAt         string                 `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // RFC3339
+	UpdatedAt         string                 `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"` // RFC3339
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -187,10 +195,14 @@ func (x *Payment) GetUpdatedAt() string {
 }
 
 type CreatePaymentResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Payment       *Payment               `protobuf:"bytes,1,opt,name=payment,proto3" json:"payment,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Payment *Payment               `protobuf:"bytes,1,opt,name=payment,proto3" json:"payment,omitempty"`
+	// authorization_url is the one-time URL to redirect the customer to
+	// complete payment. Never persisted — not a fact about the payment,
+	// just a transient client action.
+	AuthorizationUrl string `protobuf:"bytes,2,opt,name=authorization_url,json=authorizationUrl,proto3" json:"authorization_url,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreatePaymentResponse) Reset() {
@@ -230,16 +242,24 @@ func (x *CreatePaymentResponse) GetPayment() *Payment {
 	return nil
 }
 
+func (x *CreatePaymentResponse) GetAuthorizationUrl() string {
+	if x != nil {
+		return x.AuthorizationUrl
+	}
+	return ""
+}
+
 var File_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"\x18payment/v1/payment.proto\x12\n" +
-	"payment.v1\"p\n" +
+	"payment.v1\"\x86\x01\n" +
 	"\x14CreatePaymentRequest\x12\x19\n" +
-	"\border_id\x18\x01 \x01(\tR\aorderId\x12!\n" +
-	"\famount_minor\x18\x02 \x01(\x03R\vamountMinor\x12\x1a\n" +
-	"\bcurrency\x18\x03 \x01(\tR\bcurrency\"\xf8\x01\n" +
+	"\border_id\x18\x01 \x01(\tR\aorderId\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
+	"\famount_minor\x18\x03 \x01(\x03R\vamountMinor\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\"\xf8\x01\n" +
 	"\aPayment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\tR\aorderId\x12!\n" +
@@ -250,9 +270,10 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\tR\tupdatedAt\"F\n" +
+	"updated_at\x18\b \x01(\tR\tupdatedAt\"s\n" +
 	"\x15CreatePaymentResponse\x12-\n" +
-	"\apayment\x18\x01 \x01(\v2\x13.payment.v1.PaymentR\apayment2f\n" +
+	"\apayment\x18\x01 \x01(\v2\x13.payment.v1.PaymentR\apayment\x12+\n" +
+	"\x11authorization_url\x18\x02 \x01(\tR\x10authorizationUrl2f\n" +
 	"\x0ePaymentService\x12T\n" +
 	"\rCreatePayment\x12 .payment.v1.CreatePaymentRequest\x1a!.payment.v1.CreatePaymentResponseB>Z<github.com/Afari-Richmond/payflow/proto/payment/v1;paymentv1b\x06proto3"
 

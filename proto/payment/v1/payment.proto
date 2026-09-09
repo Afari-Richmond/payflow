@@ -8,16 +8,18 @@ option go_package = "github.com/Afari-Richmond/payflow/proto/payment/v1;paymentv
 
 // PaymentService is the gRPC contract exposed by payment-service.
 service PaymentService {
-  // CreatePayment records a payment attempt for an order, in PENDING
-  // status. It does not talk to Paystack — that's InitializeTransaction,
-  // added in Milestone 7 behind the PaymentProvider abstraction.
+  // CreatePayment records a payment attempt for an order and
+  // initializes it with the payment provider (Paystack). Returns the
+  // persisted payment plus a one-time authorization URL the caller
+  // should redirect the customer to.
   rpc CreatePayment(CreatePaymentRequest) returns (CreatePaymentResponse);
 }
 
 message CreatePaymentRequest {
   string order_id = 1;
-  int64 amount_minor = 2;
-  string currency = 3;
+  string email = 2;
+  int64 amount_minor = 3;
+  string currency = 4;
 }
 
 // Payment is the wire representation of a payment. AmountMinor is
@@ -28,11 +30,15 @@ message Payment {
   int64 amount_minor = 3;
   string currency = 4;
   string status = 5;
-  string provider_reference = 6; // empty until Milestone 7
-  string created_at = 7;         // RFC3339
-  string updated_at = 8;         // RFC3339
+  string provider_reference = 6;
+  string created_at = 7; // RFC3339
+  string updated_at = 8; // RFC3339
 }
 
 message CreatePaymentResponse {
   Payment payment = 1;
+  // authorization_url is the one-time URL to redirect the customer to
+  // complete payment. Never persisted — not a fact about the payment,
+  // just a transient client action.
+  string authorization_url = 2;
 }

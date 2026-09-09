@@ -31,9 +31,10 @@ const (
 //
 // PaymentService is the gRPC contract exposed by payment-service.
 type PaymentServiceClient interface {
-	// CreatePayment records a payment attempt for an order, in PENDING
-	// status. It does not talk to Paystack — that's InitializeTransaction,
-	// added in Milestone 7 behind the PaymentProvider abstraction.
+	// CreatePayment records a payment attempt for an order and
+	// initializes it with the payment provider (Paystack). Returns the
+	// persisted payment plus a one-time authorization URL the caller
+	// should redirect the customer to.
 	CreatePayment(ctx context.Context, in *CreatePaymentRequest, opts ...grpc.CallOption) (*CreatePaymentResponse, error)
 }
 
@@ -61,9 +62,10 @@ func (c *paymentServiceClient) CreatePayment(ctx context.Context, in *CreatePaym
 //
 // PaymentService is the gRPC contract exposed by payment-service.
 type PaymentServiceServer interface {
-	// CreatePayment records a payment attempt for an order, in PENDING
-	// status. It does not talk to Paystack — that's InitializeTransaction,
-	// added in Milestone 7 behind the PaymentProvider abstraction.
+	// CreatePayment records a payment attempt for an order and
+	// initializes it with the payment provider (Paystack). Returns the
+	// persisted payment plus a one-time authorization URL the caller
+	// should redirect the customer to.
 	CreatePayment(context.Context, *CreatePaymentRequest) (*CreatePaymentResponse, error)
 	mustEmbedUnimplementedPaymentServiceServer()
 }
