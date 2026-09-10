@@ -6,17 +6,22 @@ package application
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 )
 
 var (
 	// ErrInvalidOrderID means the provided order ID was not a valid UUID.
 	ErrInvalidOrderID = errors.New("invalid order id")
+	// ErrInvalidEmail means the provided email address failed
+	// validation.
+	ErrInvalidEmail = errors.New("invalid email address")
 	// ErrInvalidAmount means the amount was not a positive integer.
 	ErrInvalidAmount = errors.New("amount must be a positive integer")
 	// ErrUnsupportedCurrency means the currency isn't one PayFlow
@@ -34,31 +39,42 @@ var supportedCurrencies = map[string]bool{
 }
 
 // PaymentService orchestrates payment creation: validates business
-// rules, generates the server-side ID, and persists via the
-// repository. Does not talk to Paystack — see PaymentProvider,
-// introduced in Milestone 7.
+// rules, generates the server-side ID, persists the initial attempt,
+// initializes the transaction with the payment provider, and persists
+// the resulting provider reference.
 type PaymentService struct {
-	repo repository.PaymentRepository
+	repo     repository.PaymentRepository
+	provider provider.PaymentProvider
 }
 
 // NewPaymentService builds a PaymentService.
-func NewPaymentService(repo repository.PaymentRepository) *PaymentService {
-	return &PaymentService{repo: repo}
+func NewPaymentService(repo repository.PaymentRepository, paymentProvider provider.PaymentProvider) *PaymentService {
+	return &PaymentService{repo: repo, provider: paymentProvider}
 }
 
-// CreatePayment validates the request and creates a new payment in
-// StatusPending. IDs and timestamps are always generated server-side —
-// never trusted from the caller.
-func (s *PaymentService) CreatePayment(ctx context.Context, orderID string, amountMinor int64, currency string) (*domain.Payment, error) {
+// CreatePayment validates the request, persists a PENDING payment
+// attempt, then initializes the transaction with the payment provider.
+// On success, the payment is updated to INITIALIZED with the
+// provider's reference persisted; the authorization URL is returned to
+// the caller but never persisted — it's a one-time client action URL,
+// not a fact about the payment. On provider failure, the payment is
+// marked FAILED and the attempt still exists for audit purposes.
+//
+// IDs and timestamps are always generated server-side — never trusted
+// from the caller.
+func (s *PaymentService) CreatePayment(ctx context.Context, orderID, email string, amountMinor int64, currency string) (*domain.Payment, string, error) {
 	parsedOrderID, err := uuid.Parse(orderID)
 	if err != nil {
-		return nil, ErrInvalidOrderID
+		return nil, "", ErrInvalidOrderID
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return nil, "", ErrInvalidEmail
 	}
 	if amountMinor <= 0 {
-		return nil, ErrInvalidAmount
+		return nil, "", ErrInvalidAmount
 	}
 	if !supportedCurrencies[currency] {
-		return nil, ErrUnsupportedCurrency
+		return nil, "", ErrUnsupportedCurrency
 	}
 
 	now := time.Now().UTC()
@@ -73,8 +89,28 @@ func (s *PaymentService) CreatePayment(ctx context.Context, orderID string, amou
 	}
 
 	if err := s.repo.Create(ctx, payment); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return payment, nil
+	result, err := s.provider.InitializeTransaction(ctx, provider.InitializeTransactionInput{
+		Email:       email,
+		AmountMinor: amountMinor,
+		Currency:    currency,
+		Reference:   payment.ID.String(),
+	})
+	if err != nil {
+		payment.Status = domain.StatusFailed
+		payment.UpdatedAt = time.Now().UTC()
+		_ = s.repo.Update(ctx, payment) // best-effort: the attempt is already recorded as PENDING even if this fails
+		return nil, "", err
+	}
+
+	payment.Status = domain.StatusInitialized
+	payment.ProviderReference = result.Reference
+	payment.UpdatedAt = time.Now().UTC()
+	if err := s.repo.Update(ctx, payment); err != nil {
+		return nil, "", err
+	}
+
+	return payment, result.AuthorizationURL, nil
 }

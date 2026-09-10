@@ -19,9 +19,10 @@ import (
 
 // PaymentCreator is the application-layer dependency this server
 // needs. A narrow interface (not the concrete *application.PaymentService)
-// so the handler can be tested without real persistence.
+// so the handler can be tested without real persistence or a real
+// payment provider.
 type PaymentCreator interface {
-	CreatePayment(ctx context.Context, orderID string, amountMinor int64, currency string) (*domain.Payment, error)
+	CreatePayment(ctx context.Context, orderID, email string, amountMinor int64, currency string) (*domain.Payment, string, error)
 }
 
 // PaymentServer implements paymentv1.PaymentServiceServer.
@@ -37,10 +38,11 @@ func NewPaymentServer(payments PaymentCreator) *PaymentServer {
 
 // CreatePayment handles the CreatePayment RPC.
 func (s *PaymentServer) CreatePayment(ctx context.Context, req *paymentv1.CreatePaymentRequest) (*paymentv1.CreatePaymentResponse, error) {
-	payment, err := s.payments.CreatePayment(ctx, req.GetOrderId(), req.GetAmountMinor(), req.GetCurrency())
+	payment, authorizationURL, err := s.payments.CreatePayment(ctx, req.GetOrderId(), req.GetEmail(), req.GetAmountMinor(), req.GetCurrency())
 	if err != nil {
 		switch {
 		case errors.Is(err, application.ErrInvalidOrderID),
+			errors.Is(err, application.ErrInvalidEmail),
 			errors.Is(err, application.ErrInvalidAmount),
 			errors.Is(err, application.ErrUnsupportedCurrency):
 			return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -50,7 +52,8 @@ func (s *PaymentServer) CreatePayment(ctx context.Context, req *paymentv1.Create
 	}
 
 	return &paymentv1.CreatePaymentResponse{
-		Payment: toProto(payment),
+		Payment:          toProto(payment),
+		AuthorizationUrl: authorizationURL,
 	}, nil
 }
 

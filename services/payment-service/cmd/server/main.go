@@ -21,6 +21,7 @@ import (
 	paymentv1 "github.com/Afari-Richmond/payflow/proto/payment/v1"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/config"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider/paystack"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/transport/grpcapi"
 )
@@ -31,14 +32,25 @@ func main() {
 
 	cfg := config.Load()
 
+	if cfg.PaystackSecretKey == "" {
+		logger.Error("PAYSTACK_SECRET_KEY is not set")
+		os.Exit(1)
+	}
+
 	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
 
+	var paystackOpts []paystack.Option
+	if cfg.PaystackBaseURL != "" {
+		paystackOpts = append(paystackOpts, paystack.WithBaseURL(cfg.PaystackBaseURL))
+	}
+	paymentProvider := paystack.NewClient(cfg.PaystackSecretKey, paystackOpts...)
+
 	repo := repository.NewGormPaymentRepository(db)
-	paymentService := application.NewPaymentService(repo)
+	paymentService := application.NewPaymentService(repo, paymentProvider)
 
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
