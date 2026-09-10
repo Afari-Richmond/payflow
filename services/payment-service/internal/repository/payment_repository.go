@@ -19,4 +19,5 @@ var ErrNotFound = errors.New("payment not found")
 type PaymentRepository interface {
 	Create(ctx context.Context, payment *domain.Payment) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Payment, error)
+	Update(ctx context.Context, payment *domain.Payment) error
 }

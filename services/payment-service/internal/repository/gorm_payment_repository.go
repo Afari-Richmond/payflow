@@ -82,3 +82,20 @@ func (r *GormPaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 	}
 	return toDomain(model), nil
 }
+
+// Update persists changes to an existing payment (status transitions,
+// provider reference, etc). Uses Save (full-row overwrite by primary
+// key), not Updates, so a field explicitly set to its zero value is
+// still written — GORM's Updates silently skips zero-value struct
+// fields, which would be a real bug for this method.
+func (r *GormPaymentRepository) Update(ctx context.Context, payment *domain.Payment) error {
+	model := toModel(payment)
+	result := r.db.WithContext(ctx).Save(&model)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
