@@ -249,6 +249,96 @@ func (x *CreatePaymentResponse) GetAuthorizationUrl() string {
 	return ""
 }
 
+type HandleWebhookRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	RawBody []byte                 `protobuf:"bytes,1,opt,name=raw_body,json=rawBody,proto3" json:"raw_body,omitempty"`
+	// signature is the raw value of Paystack's X-Paystack-Signature
+	// header, unverified until this RPC verifies it.
+	Signature     string `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HandleWebhookRequest) Reset() {
+	*x = HandleWebhookRequest{}
+	mi := &file_payment_v1_payment_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HandleWebhookRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HandleWebhookRequest) ProtoMessage() {}
+
+func (x *HandleWebhookRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_v1_payment_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HandleWebhookRequest.ProtoReflect.Descriptor instead.
+func (*HandleWebhookRequest) Descriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *HandleWebhookRequest) GetRawBody() []byte {
+	if x != nil {
+		return x.RawBody
+	}
+	return nil
+}
+
+func (x *HandleWebhookRequest) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+type HandleWebhookResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HandleWebhookResponse) Reset() {
+	*x = HandleWebhookResponse{}
+	mi := &file_payment_v1_payment_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HandleWebhookResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HandleWebhookResponse) ProtoMessage() {}
+
+func (x *HandleWebhookResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_v1_payment_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HandleWebhookResponse.ProtoReflect.Descriptor instead.
+func (*HandleWebhookResponse) Descriptor() ([]byte, []int) {
+	return file_payment_v1_payment_proto_rawDescGZIP(), []int{4}
+}
+
 var File_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_payment_v1_payment_proto_rawDesc = "" +
@@ -273,9 +363,14 @@ const file_payment_v1_payment_proto_rawDesc = "" +
 	"updated_at\x18\b \x01(\tR\tupdatedAt\"s\n" +
 	"\x15CreatePaymentResponse\x12-\n" +
 	"\apayment\x18\x01 \x01(\v2\x13.payment.v1.PaymentR\apayment\x12+\n" +
-	"\x11authorization_url\x18\x02 \x01(\tR\x10authorizationUrl2f\n" +
+	"\x11authorization_url\x18\x02 \x01(\tR\x10authorizationUrl\"O\n" +
+	"\x14HandleWebhookRequest\x12\x19\n" +
+	"\braw_body\x18\x01 \x01(\fR\arawBody\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\tR\tsignature\"\x17\n" +
+	"\x15HandleWebhookResponse2\xbc\x01\n" +
 	"\x0ePaymentService\x12T\n" +
-	"\rCreatePayment\x12 .payment.v1.CreatePaymentRequest\x1a!.payment.v1.CreatePaymentResponseB>Z<github.com/Afari-Richmond/payflow/proto/payment/v1;paymentv1b\x06proto3"
+	"\rCreatePayment\x12 .payment.v1.CreatePaymentRequest\x1a!.payment.v1.CreatePaymentResponse\x12T\n" +
+	"\rHandleWebhook\x12 .payment.v1.HandleWebhookRequest\x1a!.payment.v1.HandleWebhookResponseB>Z<github.com/Afari-Richmond/payflow/proto/payment/v1;paymentv1b\x06proto3"
 
 var (
 	file_payment_v1_payment_proto_rawDescOnce sync.Once
@@ -289,18 +384,22 @@ func file_payment_v1_payment_proto_rawDescGZIP() []byte {
 	return file_payment_v1_payment_proto_rawDescData
 }
 
-var file_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_payment_v1_payment_proto_goTypes = []any{
 	(*CreatePaymentRequest)(nil),  // 0: payment.v1.CreatePaymentRequest
 	(*Payment)(nil),               // 1: payment.v1.Payment
 	(*CreatePaymentResponse)(nil), // 2: payment.v1.CreatePaymentResponse
+	(*HandleWebhookRequest)(nil),  // 3: payment.v1.HandleWebhookRequest
+	(*HandleWebhookResponse)(nil), // 4: payment.v1.HandleWebhookResponse
 }
 var file_payment_v1_payment_proto_depIdxs = []int32{
 	1, // 0: payment.v1.CreatePaymentResponse.payment:type_name -> payment.v1.Payment
 	0, // 1: payment.v1.PaymentService.CreatePayment:input_type -> payment.v1.CreatePaymentRequest
-	2, // 2: payment.v1.PaymentService.CreatePayment:output_type -> payment.v1.CreatePaymentResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	3, // 2: payment.v1.PaymentService.HandleWebhook:input_type -> payment.v1.HandleWebhookRequest
+	2, // 3: payment.v1.PaymentService.CreatePayment:output_type -> payment.v1.CreatePaymentResponse
+	4, // 4: payment.v1.PaymentService.HandleWebhook:output_type -> payment.v1.HandleWebhookResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -317,7 +416,7 @@ func file_payment_v1_payment_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_payment_v1_payment_proto_rawDesc), len(file_payment_v1_payment_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

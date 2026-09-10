@@ -13,6 +13,13 @@ service PaymentService {
   // persisted payment plus a one-time authorization URL the caller
   // should redirect the customer to.
   rpc CreatePayment(CreatePaymentRequest) returns (CreatePaymentResponse);
+
+  // HandleWebhook verifies and processes a Paystack webhook delivery.
+  // Callers (api-gateway) forward the raw HTTP request body and
+  // signature header untouched — see ADR 002. A non-error response
+  // means the event was handled or safely ignored and should be
+  // acknowledged (HTTP 200) to Paystack; an error means reject.
+  rpc HandleWebhook(HandleWebhookRequest) returns (HandleWebhookResponse);
 }
 
 message CreatePaymentRequest {
@@ -42,3 +49,12 @@ message CreatePaymentResponse {
   // just a transient client action.
   string authorization_url = 2;
 }
+
+message HandleWebhookRequest {
+  bytes raw_body = 1;
+  // signature is the raw value of Paystack's X-Paystack-Signature
+  // header, unverified until this RPC verifies it.
+  string signature = 2;
+}
+
+message HandleWebhookResponse {}

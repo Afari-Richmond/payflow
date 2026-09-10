@@ -23,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	PaymentService_CreatePayment_FullMethodName = "/payment.v1.PaymentService/CreatePayment"
+	PaymentService_HandleWebhook_FullMethodName = "/payment.v1.PaymentService/HandleWebhook"
 )
 
 // PaymentServiceClient is the client API for PaymentService service.
@@ -36,6 +37,12 @@ type PaymentServiceClient interface {
 	// persisted payment plus a one-time authorization URL the caller
 	// should redirect the customer to.
 	CreatePayment(ctx context.Context, in *CreatePaymentRequest, opts ...grpc.CallOption) (*CreatePaymentResponse, error)
+	// HandleWebhook verifies and processes a Paystack webhook delivery.
+	// Callers (api-gateway) forward the raw HTTP request body and
+	// signature header untouched — see ADR 002. A non-error response
+	// means the event was handled or safely ignored and should be
+	// acknowledged (HTTP 200) to Paystack; an error means reject.
+	HandleWebhook(ctx context.Context, in *HandleWebhookRequest, opts ...grpc.CallOption) (*HandleWebhookResponse, error)
 }
 
 type paymentServiceClient struct {
@@ -56,6 +63,16 @@ func (c *paymentServiceClient) CreatePayment(ctx context.Context, in *CreatePaym
 	return out, nil
 }
 
+func (c *paymentServiceClient) HandleWebhook(ctx context.Context, in *HandleWebhookRequest, opts ...grpc.CallOption) (*HandleWebhookResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HandleWebhookResponse)
+	err := c.cc.Invoke(ctx, PaymentService_HandleWebhook_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PaymentServiceServer is the server API for PaymentService service.
 // All implementations must embed UnimplementedPaymentServiceServer
 // for forward compatibility.
@@ -67,6 +84,12 @@ type PaymentServiceServer interface {
 	// persisted payment plus a one-time authorization URL the caller
 	// should redirect the customer to.
 	CreatePayment(context.Context, *CreatePaymentRequest) (*CreatePaymentResponse, error)
+	// HandleWebhook verifies and processes a Paystack webhook delivery.
+	// Callers (api-gateway) forward the raw HTTP request body and
+	// signature header untouched — see ADR 002. A non-error response
+	// means the event was handled or safely ignored and should be
+	// acknowledged (HTTP 200) to Paystack; an error means reject.
+	HandleWebhook(context.Context, *HandleWebhookRequest) (*HandleWebhookResponse, error)
 	mustEmbedUnimplementedPaymentServiceServer()
 }
 
@@ -79,6 +102,9 @@ type UnimplementedPaymentServiceServer struct{}
 
 func (UnimplementedPaymentServiceServer) CreatePayment(context.Context, *CreatePaymentRequest) (*CreatePaymentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreatePayment not implemented")
+}
+func (UnimplementedPaymentServiceServer) HandleWebhook(context.Context, *HandleWebhookRequest) (*HandleWebhookResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleWebhook not implemented")
 }
 func (UnimplementedPaymentServiceServer) mustEmbedUnimplementedPaymentServiceServer() {}
 func (UnimplementedPaymentServiceServer) testEmbeddedByValue()                        {}
@@ -119,6 +145,24 @@ func _PaymentService_CreatePayment_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PaymentService_HandleWebhook_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HandleWebhookRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).HandleWebhook(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_HandleWebhook_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).HandleWebhook(ctx, req.(*HandleWebhookRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PaymentService_ServiceDesc is the grpc.ServiceDesc for PaymentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -129,6 +173,10 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreatePayment",
 			Handler:    _PaymentService_CreatePayment_Handler,
+		},
+		{
+			MethodName: "HandleWebhook",
+			Handler:    _PaymentService_HandleWebhook_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
