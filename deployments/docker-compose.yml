@@ -18,5 +18,22 @@ services:
       timeout: 3s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: payflow
+      RABBITMQ_DEFAULT_PASS: payflow
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # management UI (http://localhost:15672)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  rabbitmq_data:
