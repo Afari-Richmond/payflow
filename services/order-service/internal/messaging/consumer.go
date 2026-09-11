@@ -119,19 +119,24 @@ func (c *Consumer) process(ctx context.Context, msg amqp.Delivery, handle Handle
 
 	err := handle(ctx, envelope)
 	if err == nil {
+		c.logger.Info("event processed",
+			"event_id", envelope.EventID, "event_type", envelope.EventType,
+			"correlation_id", envelope.CorrelationID)
 		msg.Ack(false)
 		return
 	}
 
 	if _, ok := errors.AsType[*events.PermanentError](err); ok {
 		c.logger.Error("permanent processing failure, dead-lettering",
-			"event_id", envelope.EventID, "event_type", envelope.EventType, "error", err)
+			"event_id", envelope.EventID, "event_type", envelope.EventType,
+			"correlation_id", envelope.CorrelationID, "error", err)
 		msg.Nack(false, false)
 		return
 	}
 
 	c.logger.Warn("transient processing failure, requeueing",
-		"event_id", envelope.EventID, "event_type", envelope.EventType, "error", err)
+		"event_id", envelope.EventID, "event_type", envelope.EventType,
+		"correlation_id", envelope.CorrelationID, "error", err)
 	msg.Nack(false, true)
 }
 
