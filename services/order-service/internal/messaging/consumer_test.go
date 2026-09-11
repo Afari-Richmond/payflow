@@ -92,14 +92,25 @@ func TestConsumer_Run_ProcessesAndAcksSuccessfully(t *testing.T) {
 	defer cancel()
 
 	received := make(chan events.Envelope, 1)
-	go consumer.Run(ctx, func(_ context.Context, e events.Envelope) error {
-		received <- e
-		cancel() // stop the consumer once we've got what we need
-		return nil
-	})
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		consumer.Run(ctx, func(_ context.Context, e events.Envelope) error {
+			received <- e
+			return nil
+		})
+	}()
 
 	select {
 	case got := <-received:
+		// Cancel only after the message is received, then wait for
+		// Run to fully return — process() still needs to Ack the
+		// message synchronously before Run's loop exits. Returning
+		// (and closing the connection via t.Cleanup) before that Ack
+		// lands would leave the message unacked, so RabbitMQ
+		// redelivers it later and pollutes other tests' queues.
+		cancel()
+		<-runDone
 		if got.EventID != envelope.EventID {
 			t.Errorf("expected event id %q, got %q", envelope.EventID, got.EventID)
 		}
