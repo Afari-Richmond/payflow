@@ -79,7 +79,7 @@ func TestConsumer_Run_ProcessesAndAcksSuccessfully(t *testing.T) {
 	}
 	defer consumer.Close()
 
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, "payment-consumer-test", events.PaymentSucceededPayload{
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, "payment-consumer-test", events.PaymentSucceededPayload{
 		PaymentID: "payment-consumer-test",
 		OrderID:   "order-consumer-test",
 	})
@@ -131,7 +131,7 @@ func TestConsumer_Run_PermanentErrorDeadLetters(t *testing.T) {
 	}
 	defer consumer.Close()
 
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, "payment-dlq-test", events.PaymentSucceededPayload{
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, "payment-dlq-test", events.PaymentSucceededPayload{
 		PaymentID: "payment-dlq-test",
 	})
 	if err != nil {

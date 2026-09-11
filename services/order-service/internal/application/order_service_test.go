@@ -177,7 +177,7 @@ func newTestOrder() *domain.Order {
 
 func paymentSucceededEnvelope(t *testing.T, orderID string) events.Envelope {
 	t.Helper()
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, "payment-1", events.PaymentSucceededPayload{
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, "payment-1", events.PaymentSucceededPayload{
 		PaymentID:   "payment-1",
 		OrderID:     orderID,
 		AmountMinor: 25000,
@@ -265,7 +265,7 @@ func TestHandlePaymentEvent_PaymentFailed_NoOrderStateChange(t *testing.T) {
 	repo := &fakeOrderRepository{order: order}
 	svc := application.NewOrderService(repo)
 
-	envelope, err := events.NewEnvelope(events.PaymentFailed, "payment-1", events.PaymentFailedPayload{
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentFailed, "payment-1", events.PaymentFailedPayload{
 		PaymentID: "payment-1",
 		OrderID:   order.ID.String(),
 	})

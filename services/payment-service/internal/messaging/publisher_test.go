@@ -71,7 +71,7 @@ func TestPublisher_Publish_RealBroker(t *testing.T) {
 		AmountMinor: 25000,
 		Currency:    "GHS",
 	}
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, payload.PaymentID, payload)
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, payload.PaymentID, payload)
 	if err != nil {
 		t.Fatalf("failed to build envelope: %v", err)
 	}

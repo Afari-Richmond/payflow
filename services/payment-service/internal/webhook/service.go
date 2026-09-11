@@ -114,7 +114,7 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 	if result.Status != provider.TransactionStatusSuccess {
 		payment.Status = domain.StatusFailed
 		payment.UpdatedAt = time.Now().UTC()
-		outboxEvent, err := buildOutboxEvent(events.PaymentFailed, payment, events.PaymentFailedPayload{
+		outboxEvent, err := buildOutboxEvent(ctx, events.PaymentFailed, payment, events.PaymentFailedPayload{
 			PaymentID: payment.ID.String(),
 			OrderID:   payment.OrderID.String(),
 		})
@@ -131,7 +131,7 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 
 	payment.Status = domain.StatusSuccess
 	payment.UpdatedAt = time.Now().UTC()
-	outboxEvent, err := buildOutboxEvent(events.PaymentSucceeded, payment, events.PaymentSucceededPayload{
+	outboxEvent, err := buildOutboxEvent(ctx, events.PaymentSucceeded, payment, events.PaymentSucceededPayload{
 		PaymentID:   payment.ID.String(),
 		OrderID:     payment.OrderID.String(),
 		AmountMinor: payment.AmountMinor,
@@ -148,8 +148,8 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 // shape order-service's consumer expects) and wraps it as an
 // outbox.Event ready to be persisted in the same transaction as the
 // payment update.
-func buildOutboxEvent(eventType string, payment *domain.Payment, payload any) (*outbox.Event, error) {
-	envelope, err := events.NewEnvelope(eventType, payment.ID.String(), payload)
+func buildOutboxEvent(ctx context.Context, eventType string, payment *domain.Payment, payload any) (*outbox.Event, error) {
+	envelope, err := events.NewEnvelope(ctx, eventType, payment.ID.String(), payload)
 	if err != nil {
 		return nil, fmt.Errorf("webhook: build envelope: %w", err)
 	}
