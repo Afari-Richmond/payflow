@@ -1,6 +1,7 @@
 go 1.26.5
 
 use (
+	./pkg/events
 	./proto
 	./services/api-gateway
 	./services/order-service
