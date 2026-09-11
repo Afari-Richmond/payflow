@@ -41,7 +41,9 @@ func main() {
 	}
 	defer paymentClient.Close()
 
-	router := httpapi.NewRouter(logger, orderClient, paymentClient)
+	readiness := client.NewReadiness(orderClient, paymentClient)
+
+	router := httpapi.NewRouter(logger, orderClient, paymentClient, readiness)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

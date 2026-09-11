@@ -40,7 +40,7 @@ func TestCreateOrderEndpoint_Success(t *testing.T) {
 		CreatedAt:   "2026-09-09T00:00:00Z",
 		UpdatedAt:   "2026-09-09T00:00:00Z",
 	}
-	router := httpapi.NewRouter(logger, fakeOrderCreator{order: order}, fakeWebhookForwarder{})
+	router := httpapi.NewRouter(logger, fakeOrderCreator{order: order}, fakeWebhookForwarder{}, fakeReadinessChecker{})
 
 	rec := postOrder(t, router, map[string]any{
 		"email":    "customer@example.com",
@@ -66,7 +66,7 @@ func TestCreateOrderEndpoint_Success(t *testing.T) {
 
 func TestCreateOrderEndpoint_ValidationRejectedByGateway(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{})
+	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{}, fakeReadinessChecker{})
 
 	tests := []map[string]any{
 		{"email": "not-an-email", "amount": 25000, "currency": "GHS"},
@@ -87,7 +87,7 @@ func TestCreateOrderEndpoint_OrderServiceValidationError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpapi.NewRouter(logger, fakeOrderCreator{
 		err: status.Error(codes.InvalidArgument, "unsupported currency"),
-	}, fakeWebhookForwarder{})
+	}, fakeWebhookForwarder{}, fakeReadinessChecker{})
 
 	rec := postOrder(t, router, map[string]any{
 		"email":    "customer@example.com",
@@ -104,7 +104,7 @@ func TestCreateOrderEndpoint_OrderServiceUnreachable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpapi.NewRouter(logger, fakeOrderCreator{
 		err: status.Error(codes.Unavailable, "connection refused"),
-	}, fakeWebhookForwarder{})
+	}, fakeWebhookForwarder{}, fakeReadinessChecker{})
 
 	rec := postOrder(t, router, map[string]any{
 		"email":    "customer@example.com",

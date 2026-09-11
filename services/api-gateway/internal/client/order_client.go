@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	orderv1 "github.com/Afari-Richmond/payflow/proto/order/v1"
 )
@@ -46,6 +47,7 @@ func NewOrderClient(addr string) (*OrderClient, error) {
 
 // CreateOrder calls order-service's CreateOrder RPC.
 func (c *OrderClient) CreateOrder(ctx context.Context, email string, amountMinor int64, currency string) (*Order, error) {
+	ctx = withCorrelationID(ctx)
 	resp, err := c.client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
 		Email:       email,
 		AmountMinor: amountMinor,
@@ -65,6 +67,12 @@ func (c *OrderClient) CreateOrder(ctx context.Context, email string, amountMinor
 		CreatedAt:   o.GetCreatedAt(),
 		UpdatedAt:   o.GetUpdatedAt(),
 	}, nil
+}
+
+// HealthCheck calls order-service's standard gRPC health check.
+func (c *OrderClient) HealthCheck(ctx context.Context) error {
+	_, err := healthpb.NewHealthClient(c.conn).Check(ctx, &healthpb.HealthCheckRequest{})
+	return err
 }
 
 // Close closes the underlying gRPC connection.

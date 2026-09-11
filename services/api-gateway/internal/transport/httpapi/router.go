@@ -8,17 +8,21 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Afari-Richmond/payflow/pkg/correlation"
 )
 
 // NewRouter builds the api-gateway's HTTP router.
-func NewRouter(logger *slog.Logger, orders OrderCreator, webhooks WebhookForwarder) *gin.Engine {
+func NewRouter(logger *slog.Logger, orders OrderCreator, webhooks WebhookForwarder, readiness ReadinessChecker) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(correlationMiddleware())
 	router.Use(requestLogger(logger))
 
 	router.GET("/health", HealthHandler)
+	router.GET("/ready", ReadyHandler(readiness))
 	router.GET("/docs", DocsHandler)
 	router.GET("/docs/swagger.json", SwaggerSpecHandler)
 	router.POST("/api/v1/orders", CreateOrderHandler(orders))
@@ -36,6 +40,7 @@ func requestLogger(logger *slog.Logger) gin.HandlerFunc {
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
+			"correlation_id", correlation.FromContext(c.Request.Context()),
 		)
 	}
 }

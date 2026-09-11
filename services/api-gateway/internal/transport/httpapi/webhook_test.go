@@ -27,7 +27,7 @@ func postWebhook(t *testing.T, router http.Handler, body []byte, signature strin
 
 func TestPaystackWebhookEndpoint_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{})
+	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{}, fakeReadinessChecker{})
 
 	rec := postWebhook(t, router, []byte(`{"event":"charge.success","data":{"reference":"abc"}}`), "some-signature")
 
@@ -40,7 +40,7 @@ func TestPaystackWebhookEndpoint_InvalidSignature(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{
 		err: status.Error(codes.Unauthenticated, "invalid webhook signature"),
-	})
+	}, fakeReadinessChecker{})
 
 	rec := postWebhook(t, router, []byte(`{}`), "bad-signature")
 
@@ -53,7 +53,7 @@ func TestPaystackWebhookEndpoint_MalformedPayload(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{
 		err: status.Error(codes.InvalidArgument, "malformed webhook payload"),
-	})
+	}, fakeReadinessChecker{})
 
 	rec := postWebhook(t, router, []byte(`not json`), "some-signature")
 
@@ -66,7 +66,7 @@ func TestPaystackWebhookEndpoint_PaymentServiceUnreachable(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{
 		err: status.Error(codes.Unavailable, "connection refused"),
-	})
+	}, fakeReadinessChecker{})
 
 	rec := postWebhook(t, router, []byte(`{"event":"charge.success","data":{"reference":"abc"}}`), "some-signature")
 

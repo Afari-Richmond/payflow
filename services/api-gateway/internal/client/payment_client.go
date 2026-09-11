@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	paymentv1 "github.com/Afari-Richmond/payflow/proto/payment/v1"
 )
@@ -31,10 +32,17 @@ func NewPaymentClient(addr string) (*PaymentClient, error) {
 // untouched — see ADR 002. The gateway never inspects rawBody or
 // signature; payment-service owns verification entirely.
 func (c *PaymentClient) HandleWebhook(ctx context.Context, rawBody []byte, signature string) error {
+	ctx = withCorrelationID(ctx)
 	_, err := c.client.HandleWebhook(ctx, &paymentv1.HandleWebhookRequest{
 		RawBody:   rawBody,
 		Signature: signature,
 	})
+	return err
+}
+
+// HealthCheck calls payment-service's standard gRPC health check.
+func (c *PaymentClient) HealthCheck(ctx context.Context) error {
+	_, err := healthpb.NewHealthClient(c.conn).Check(ctx, &healthpb.HealthCheckRequest{})
 	return err
 }
 
