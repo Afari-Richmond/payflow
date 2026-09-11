@@ -41,6 +41,13 @@ func (f *fakePaymentRepository) Update(_ context.Context, payment *domain.Paymen
 	return nil
 }
 
+// MarkProcessedAndUpdate is not exercised by these tests (webhook
+// idempotency is covered in the webhook package's own tests) — this
+// stub exists only to satisfy repository.PaymentRepository.
+func (f *fakePaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, _ string) (bool, error) {
+	return false, f.Update(ctx, payment)
+}
+
 type fakePaymentProvider struct {
 	result provider.InitializeTransactionResult
 	err    error

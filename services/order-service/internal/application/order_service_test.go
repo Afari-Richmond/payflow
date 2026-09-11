@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +15,28 @@ import (
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/repository"
 )
 
+// fakeOrderRepository emulates the real GormOrderRepository's
+// atomicity guarantee — a mutex-guarded set standing in for the
+// database's event_id unique constraint — so concurrency tests against
+// this fake exercise the same "only one caller wins" property the real
+// unique constraint provides.
 type fakeOrderRepository struct {
-	order     *domain.Order
-	created   *domain.Order
-	getErr    error
-	err       error
-	updated   *domain.Order
-	updateErr error
+	mu               sync.Mutex
+	order            *domain.Order
+	created          *domain.Order
+	getErr           error
+	err              error
+	updated          *domain.Order
+	markProcessedErr error
+	processedEventID map[uuid.UUID]bool
+	markCallCount    int
+	firstTimeCount   int
+	// getDelay simulates real network/DB latency between the read and
+	// the write, widening the window a concurrency test needs to
+	// actually exercise — a real GetByID has this latency for free;
+	// this fake doesn't, without it. Slept outside the lock so
+	// concurrent callers overlap instead of serializing on it.
+	getDelay time.Duration
 }
 
 func (f *fakeOrderRepository) Create(_ context.Context, order *domain.Order) error {
@@ -32,6 +48,11 @@ func (f *fakeOrderRepository) Create(_ context.Context, order *domain.Order) err
 }
 
 func (f *fakeOrderRepository) GetByID(_ context.Context, id uuid.UUID) (*domain.Order, error) {
+	if f.getDelay > 0 {
+		time.Sleep(f.getDelay)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -43,15 +64,40 @@ func (f *fakeOrderRepository) GetByID(_ context.Context, id uuid.UUID) (*domain.
 }
 
 func (f *fakeOrderRepository) Update(_ context.Context, order *domain.Order) error {
-	if f.updateErr != nil {
-		return f.updateErr
-	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	snapshot := *order
 	f.updated = &snapshot
 	if f.order != nil && f.order.ID == order.ID {
 		f.order = &snapshot
 	}
 	return nil
+}
+
+func (f *fakeOrderRepository) MarkProcessedAndUpdate(_ context.Context, eventID uuid.UUID, _ string, order *domain.Order) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.markCallCount++
+	if f.markProcessedErr != nil {
+		return false, f.markProcessedErr
+	}
+
+	if f.processedEventID == nil {
+		f.processedEventID = make(map[uuid.UUID]bool)
+	}
+	if f.processedEventID[eventID] {
+		return true, nil // emulates the unique-constraint violation
+	}
+	f.processedEventID[eventID] = true
+	f.firstTimeCount++
+
+	snapshot := *order
+	f.updated = &snapshot
+	if f.order != nil && f.order.ID == order.ID {
+		f.order = &snapshot
+	}
+	return false, nil
 }
 
 func TestOrderService_CreateOrder_Success(t *testing.T) {
@@ -242,5 +288,55 @@ func TestHandlePaymentEvent_UnsupportedEventType_SafelyIgnored(t *testing.T) {
 	envelope := events.Envelope{EventType: "transfer.success"}
 	if err := svc.HandlePaymentEvent(context.Background(), envelope); err != nil {
 		t.Errorf("expected an unsupported event type to be safely ignored, got: %v", err)
+	}
+}
+
+// TestHandlePaymentEvent_ConcurrentRedeliveries is the concurrency test
+// the milestone's own task list asks for: N goroutines process the
+// *same* event (same event_id, as a genuine RabbitMQ redelivery would
+// be) simultaneously. Exactly one must actually apply the update.
+//
+// Note on markCallCount: it is deliberately *not* asserted to equal
+// concurrency. The fast-path status check (cheap, no transaction) and
+// the atomic MarkProcessedAndUpdate call (the real guarantee) are two
+// layers of the same defense — once the fastest goroutine finishes its
+// (near-instant) write, later-waking goroutines legitimately catch the
+// fast path and never reach MarkProcessedAndUpdate at all. That's
+// working as designed, not a gap in the test.
+func TestHandlePaymentEvent_ConcurrentRedeliveries(t *testing.T) {
+	order := newTestOrder()
+	repo := &fakeOrderRepository{order: order, getDelay: 20 * time.Millisecond}
+	svc := application.NewOrderService(repo)
+
+	envelope := paymentSucceededEnvelope(t, order.ID.String())
+
+	const concurrency = 20
+	var wg sync.WaitGroup
+	errs := make([]error, concurrency)
+	for i := range concurrency {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = svc.HandlePaymentEvent(context.Background(), envelope)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("call %d: unexpected error: %v", i, err)
+		}
+	}
+
+	repo.mu.Lock()
+	wins := repo.firstTimeCount
+	finalStatus := repo.order.Status
+	repo.mu.Unlock()
+
+	if wins != 1 {
+		t.Errorf("expected exactly 1 of %d concurrent redeliveries to actually apply the update, got %d", concurrency, wins)
+	}
+	if finalStatus != domain.StatusPaid {
+		t.Errorf("expected final status %q, got %q", domain.StatusPaid, finalStatus)
 	}
 }

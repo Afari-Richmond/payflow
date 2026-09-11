@@ -96,10 +96,14 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 	}
 
 	if payment.Status == domain.StatusSuccess {
-		// Already processed — this is a duplicate delivery. Basic
-		// idempotency guard via current state; full processed-event
-		// tracking (protecting against a race between two concurrent
-		// deliveries) is Milestone 10.
+		// Fast path only: cheap enough to skip a VerifyTransaction call
+		// and a DB transaction for the common case (redelivered after
+		// processing is fully done and visible). The actual correctness
+		// guarantee against concurrent duplicate deliveries is the
+		// processed_webhook_events unique constraint below, via
+		// MarkProcessedAndUpdate — this check alone has a real race
+		// (two concurrent calls could both pass it before either
+		// writes), which is exactly why that constraint exists.
 		return nil
 	}
 
@@ -114,10 +118,13 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 	if result.Status != provider.TransactionStatusSuccess {
 		payment.Status = domain.StatusFailed
 		payment.UpdatedAt = time.Now().UTC()
-		if err := s.repo.Update(ctx, payment); err != nil {
+		alreadyProcessed, err := s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent)
+		if err != nil {
 			return err
 		}
-		s.publishPaymentFailed(ctx, payment)
+		if !alreadyProcessed {
+			s.publishPaymentFailed(ctx, payment)
+		}
 		return nil
 	}
 
@@ -127,10 +134,13 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 
 	payment.Status = domain.StatusSuccess
 	payment.UpdatedAt = time.Now().UTC()
-	if err := s.repo.Update(ctx, payment); err != nil {
+	alreadyProcessed, err := s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent)
+	if err != nil {
 		return err
 	}
-	s.publishPaymentSucceeded(ctx, payment)
+	if !alreadyProcessed {
+		s.publishPaymentSucceeded(ctx, payment)
+	}
 	return nil
 }
 

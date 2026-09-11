@@ -6,10 +6,24 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
 )
+
+// postgresUniqueViolation is Postgres's SQLSTATE code for a unique
+// constraint violation.
+const postgresUniqueViolation = "23505"
+
+// isUniqueViolation reports whether err is a Postgres unique
+// constraint violation — used to detect "this event was already
+// processed" via the processed_webhook_events table's primary key,
+// rather than an application-level check-then-write race.
+func isUniqueViolation(err error) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == postgresUniqueViolation
+}
 
 // paymentModel is the GORM-mapped persistence shape for a payment.
 // Kept separate from domain.Payment so the domain package stays free
@@ -26,6 +40,18 @@ type paymentModel struct {
 }
 
 func (paymentModel) TableName() string { return "payments" }
+
+// processedWebhookEventModel backs the idempotency guard — its
+// composite primary key (payment_id, event_type) is what actually
+// prevents double-processing under concurrent webhook deliveries; see
+// isUniqueViolation and MarkProcessedAndUpdate.
+type processedWebhookEventModel struct {
+	PaymentID   uuid.UUID `gorm:"column:payment_id;primaryKey"`
+	EventType   string    `gorm:"column:event_type;primaryKey"`
+	ProcessedAt time.Time `gorm:"column:processed_at"`
+}
+
+func (processedWebhookEventModel) TableName() string { return "processed_webhook_events" }
 
 func toModel(p *domain.Payment) paymentModel {
 	return paymentModel{
@@ -98,4 +124,33 @@ func (r *GormPaymentRepository) Update(ctx context.Context, payment *domain.Paym
 		return ErrNotFound
 	}
 	return nil
+}
+
+// MarkProcessedAndUpdate inserts the processed-event marker and saves
+// payment's state in one transaction. If the marker insert violates
+// the (payment_id, event_type) primary key, the whole transaction
+// rolls back — nothing is double-applied — and this returns
+// (true, nil): the caller knows, with certainty rather than a guess,
+// that another call already did this work.
+func (r *GormPaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, eventType string) (bool, error) {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		marker := processedWebhookEventModel{
+			PaymentID:   payment.ID,
+			EventType:   eventType,
+			ProcessedAt: time.Now().UTC(),
+		}
+		if err := tx.Create(&marker).Error; err != nil {
+			return err
+		}
+
+		model := toModel(payment)
+		return tx.Save(&model).Error
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -90,5 +92,73 @@ func TestGormPaymentRepository_GetByID_NotFound(t *testing.T) {
 	_, err := repo.GetByID(context.Background(), uuid.New())
 	if !errors.Is(err, repository.ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestGormPaymentRepository_MarkProcessedAndUpdate_ConcurrentCallsOnlyOneWins
+// is the real proof behind ADR 003 / Milestone 10's idempotency claim:
+// N genuinely concurrent database transactions attempt to mark the
+// *same* (payment_id, event_type) processed. The composite primary key
+// on processed_webhook_events must let exactly one succeed — not an
+// application-level race that "usually" works, an actual constraint
+// the database enforces.
+func TestGormPaymentRepository_MarkProcessedAndUpdate_ConcurrentCallsOnlyOneWins(t *testing.T) {
+	db := testDB(t)
+	repo := repository.NewGormPaymentRepository(db)
+	ctx := context.Background()
+
+	payment := &domain.Payment{
+		ID:          uuid.New(),
+		OrderID:     uuid.New(),
+		AmountMinor: 25000,
+		Currency:    "GHS",
+		Status:      domain.StatusInitialized,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := repo.Create(ctx, payment); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Exec("DELETE FROM processed_webhook_events WHERE payment_id = ?", payment.ID)
+		db.Exec("DELETE FROM payments WHERE id = ?", payment.ID)
+	})
+
+	const concurrency = 10
+	var wg sync.WaitGroup
+	var firstTimeCount atomic.Int32
+	var errCount atomic.Int32
+
+	for range concurrency {
+		wg.Go(func() {
+			updated := *payment
+			updated.Status = domain.StatusSuccess
+			updated.UpdatedAt = time.Now().UTC()
+
+			alreadyProcessed, err := repo.MarkProcessedAndUpdate(ctx, &updated, "charge.success")
+			if err != nil {
+				errCount.Add(1)
+				return
+			}
+			if !alreadyProcessed {
+				firstTimeCount.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+
+	if got := errCount.Load(); got != 0 {
+		t.Errorf("expected 0 unexpected errors, got %d", got)
+	}
+	if got := firstTimeCount.Load(); got != 1 {
+		t.Errorf("expected exactly 1 of %d concurrent calls to win (alreadyProcessed=false), got %d", concurrency, got)
+	}
+
+	final, err := repo.GetByID(ctx, payment.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if final.Status != domain.StatusSuccess {
+		t.Errorf("expected final status %q, got %q", domain.StatusSuccess, final.Status)
 	}
 }

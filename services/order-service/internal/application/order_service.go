@@ -114,6 +114,11 @@ func (s *OrderService) handlePaymentSucceeded(ctx context.Context, envelope even
 		return events.NewPermanentError(err)
 	}
 
+	eventID, err := uuid.Parse(envelope.EventID)
+	if err != nil {
+		return events.NewPermanentError(err)
+	}
+
 	order, err := s.repo.GetByID(ctx, orderID)
 	if errors.Is(err, repository.ErrNotFound) {
 		return events.NewPermanentError(err)
@@ -123,13 +128,19 @@ func (s *OrderService) handlePaymentSucceeded(ctx context.Context, envelope even
 	}
 
 	if order.Status == domain.StatusPaid {
-		// Already processed — duplicate delivery, safe no-op. Same
-		// basic-idempotency scope as payment-service's webhook handler
-		// (Milestone 8); full processed-event tracking is Milestone 10.
+		// Fast path only: cheap enough to skip a DB transaction for the
+		// common case (redelivered after processing is fully done and
+		// visible). The actual correctness guarantee against a
+		// redelivered/duplicate message is the processed_events unique
+		// constraint below, via MarkProcessedAndUpdate — this check
+		// alone has a real race (two near-simultaneous deliveries could
+		// both pass it before either writes), which is exactly why that
+		// constraint exists.
 		return nil
 	}
 
 	order.Status = domain.StatusPaid
 	order.UpdatedAt = time.Now().UTC()
-	return s.repo.Update(ctx, order)
+	_, err = s.repo.MarkProcessedAndUpdate(ctx, eventID, envelope.EventType, order)
+	return err
 }

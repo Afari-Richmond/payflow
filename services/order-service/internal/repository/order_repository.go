@@ -20,4 +20,12 @@ type OrderRepository interface {
 	Create(ctx context.Context, order *domain.Order) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error)
 	Update(ctx context.Context, order *domain.Order) error
+
+	// MarkProcessedAndUpdate atomically records that eventID (a
+	// RabbitMQ event's own globally unique ID) has been processed and
+	// persists order's current state, in one transaction. Returns
+	// (true, nil) if eventID was already processed — a redelivered
+	// message — in which case no changes were made. Returns
+	// (false, nil) the first time.
+	MarkProcessedAndUpdate(ctx context.Context, eventID uuid.UUID, eventType string, order *domain.Order) (alreadyProcessed bool, err error)
 }

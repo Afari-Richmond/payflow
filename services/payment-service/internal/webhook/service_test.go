@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,18 +27,27 @@ func testLogger() *slog.Logger {
 }
 
 type fakePublisher struct {
+	mu         sync.Mutex
 	published  []events.Envelope
 	routingKey []string
 	err        error
 }
 
 func (f *fakePublisher) Publish(_ context.Context, routingKey string, envelope events.Envelope) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
 	f.published = append(f.published, envelope)
 	f.routingKey = append(f.routingKey, routingKey)
 	return nil
+}
+
+func (f *fakePublisher) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.published)
 }
 
 const testSecretKey = "sk_test_fake_secret"
@@ -48,16 +58,27 @@ func sign(body []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// fakeRepo emulates the real GormPaymentRepository's atomicity
+// guarantee — a mutex-guarded map standing in for the database's
+// (payment_id, event_type) unique constraint — so concurrency tests
+// against this fake exercise the same "only one caller wins" property
+// the real unique constraint provides.
 type fakeRepo struct {
-	payment   *domain.Payment
-	getErr    error
-	updated   *domain.Payment
-	updateErr error
+	mu               sync.Mutex
+	payment          *domain.Payment
+	getErr           error
+	updated          *domain.Payment
+	updateErr        error
+	markProcessedErr error
+	processed        map[string]bool
+	markCallCount    int
 }
 
 func (f *fakeRepo) Create(_ context.Context, _ *domain.Payment) error { return nil }
 
 func (f *fakeRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Payment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -69,6 +90,8 @@ func (f *fakeRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Payment, er
 }
 
 func (f *fakeRepo) Update(_ context.Context, payment *domain.Payment) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.updateErr != nil {
 		return f.updateErr
 	}
@@ -80,9 +103,36 @@ func (f *fakeRepo) Update(_ context.Context, payment *domain.Payment) error {
 	return nil
 }
 
+func (f *fakeRepo) MarkProcessedAndUpdate(_ context.Context, payment *domain.Payment, eventType string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.markCallCount++
+	if f.markProcessedErr != nil {
+		return false, f.markProcessedErr
+	}
+
+	if f.processed == nil {
+		f.processed = make(map[string]bool)
+	}
+	key := payment.ID.String() + ":" + eventType
+	if f.processed[key] {
+		return true, nil // emulates the unique-constraint violation
+	}
+	f.processed[key] = true
+
+	snapshot := *payment
+	f.updated = &snapshot
+	if f.payment != nil && f.payment.ID == payment.ID {
+		f.payment = &snapshot
+	}
+	return false, nil
+}
+
 type fakeProvider struct {
 	verifyResult provider.VerifyTransactionResult
 	verifyErr    error
+	delay        time.Duration
 }
 
 func (f fakeProvider) InitializeTransaction(_ context.Context, _ provider.InitializeTransactionInput) (provider.InitializeTransactionResult, error) {
@@ -90,6 +140,14 @@ func (f fakeProvider) InitializeTransaction(_ context.Context, _ provider.Initia
 }
 
 func (f fakeProvider) VerifyTransaction(_ context.Context, _ string) (provider.VerifyTransactionResult, error) {
+	// A real VerifyTransaction is a network call — real latency, which
+	// is exactly what turns "check status, then act" into a race
+	// between concurrent deliveries. This fake has near-zero latency
+	// otherwise, which would let the fast-path status check alone
+	// (accidentally) serialize every call. delay widens the window so
+	// the concurrency test actually exercises MarkProcessedAndUpdate's
+	// atomicity, not just the optimization in front of it.
+	time.Sleep(f.delay)
 	return f.verifyResult, f.verifyErr
 }
 
@@ -296,5 +354,59 @@ func TestHandleWebhook_AmountMismatch_Rejected(t *testing.T) {
 	}
 	if repo.updated != nil {
 		t.Error("expected no state change on amount mismatch")
+	}
+}
+
+// TestHandleWebhook_ConcurrentDuplicateDeliveries is the concurrency
+// test the milestone's own task list asks for: N goroutines deliver
+// the *same* webhook simultaneously (simulating Paystack redelivering
+// while the first attempt is still in flight — the exact race the
+// Milestone 8 status-check-only guard could not close). Exactly one
+// must "win" — the point of MarkProcessedAndUpdate's atomic marker
+// insert, not the earlier fast-path status check.
+func TestHandleWebhook_ConcurrentDuplicateDeliveries(t *testing.T) {
+	payment := newTestPayment()
+	repo := &fakeRepo{payment: payment}
+	prov := fakeProvider{
+		verifyResult: provider.VerifyTransactionResult{
+			Status:      provider.TransactionStatusSuccess,
+			AmountMinor: payment.AmountMinor,
+			Currency:    payment.Currency,
+		},
+		delay: 20 * time.Millisecond,
+	}
+	pub := &fakePublisher{}
+	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
+
+	body := chargeSuccessBody(payment.ID.String())
+	signature := sign(body)
+
+	const concurrency = 20
+	var wg sync.WaitGroup
+	errs := make([]error, concurrency)
+	for i := range concurrency {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = svc.HandleWebhook(context.Background(), body, signature)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("call %d: unexpected error: %v", i, err)
+		}
+	}
+
+	repo.mu.Lock()
+	markCalls := repo.markCallCount
+	repo.mu.Unlock()
+	if markCalls != concurrency {
+		t.Errorf("expected MarkProcessedAndUpdate called %d times (once per delivery), got %d", concurrency, markCalls)
+	}
+
+	if got := pub.count(); got != 1 {
+		t.Errorf("expected exactly 1 published event despite %d concurrent deliveries, got %d", concurrency, got)
 	}
 }
