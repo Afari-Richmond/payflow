@@ -9,6 +9,7 @@ import (
 
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 )
 
@@ -42,9 +43,10 @@ func (f *fakePaymentRepository) Update(_ context.Context, payment *domain.Paymen
 }
 
 // MarkProcessedAndUpdate is not exercised by these tests (webhook
-// idempotency is covered in the webhook package's own tests) — this
-// stub exists only to satisfy repository.PaymentRepository.
-func (f *fakePaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, _ string) (bool, error) {
+// idempotency and outbox writes are covered in the webhook package's
+// own tests) — this stub exists only to satisfy
+// repository.PaymentRepository.
+func (f *fakePaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, _ string, _ *outbox.Event) (bool, error) {
 	return false, f.Update(ctx, payment)
 }
 

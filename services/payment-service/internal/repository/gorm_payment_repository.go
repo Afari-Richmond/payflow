@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 )
 
 // postgresUniqueViolation is Postgres's SQLSTATE code for a unique
@@ -52,6 +53,23 @@ type processedWebhookEventModel struct {
 }
 
 func (processedWebhookEventModel) TableName() string { return "processed_webhook_events" }
+
+// outboxEventModel is the GORM-mapped persistence shape for an outbox
+// row. See internal/outbox for the framework-free Event type this
+// mirrors, and the GormOutboxRepository (in gorm_outbox_repository.go)
+// that reads these rows back for the publisher worker.
+type outboxEventModel struct {
+	ID           uuid.UUID  `gorm:"column:id;primaryKey"`
+	AggregateID  uuid.UUID  `gorm:"column:aggregate_id"`
+	EventType    string     `gorm:"column:event_type"`
+	RoutingKey   string     `gorm:"column:routing_key"`
+	Payload      string     `gorm:"column:payload"`
+	CreatedAt    time.Time  `gorm:"column:created_at"`
+	PublishedAt  *time.Time `gorm:"column:published_at"`
+	AttemptCount int        `gorm:"column:attempt_count"`
+}
+
+func (outboxEventModel) TableName() string { return "outbox_events" }
 
 func toModel(p *domain.Payment) paymentModel {
 	return paymentModel{
@@ -126,13 +144,19 @@ func (r *GormPaymentRepository) Update(ctx context.Context, payment *domain.Paym
 	return nil
 }
 
-// MarkProcessedAndUpdate inserts the processed-event marker and saves
-// payment's state in one transaction. If the marker insert violates
-// the (payment_id, event_type) primary key, the whole transaction
-// rolls back — nothing is double-applied — and this returns
-// (true, nil): the caller knows, with certainty rather than a guess,
-// that another call already did this work.
-func (r *GormPaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, eventType string) (bool, error) {
+// MarkProcessedAndUpdate inserts the processed-event marker, saves
+// payment's state, and enqueues outboxEvent (if non-nil) — all in one
+// transaction. If the marker insert violates the (payment_id,
+// event_type) primary key, the whole transaction rolls back — nothing
+// is double-applied, and no duplicate event is enqueued — and this
+// returns (true, nil): the caller knows, with certainty rather than a
+// guess, that another call already did this work.
+//
+// Writing the outbox row in the same transaction as the payment update
+// is the entire point of the outbox pattern (ADR 005): either both
+// commit, or neither does. There is no window where the payment says
+// SUCCESS but no event is durably queued for delivery.
+func (r *GormPaymentRepository) MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, eventType string, outboxEvent *outbox.Event) (bool, error) {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		marker := processedWebhookEventModel{
 			PaymentID:   payment.ID,
@@ -144,7 +168,26 @@ func (r *GormPaymentRepository) MarkProcessedAndUpdate(ctx context.Context, paym
 		}
 
 		model := toModel(payment)
-		return tx.Save(&model).Error
+		if err := tx.Save(&model).Error; err != nil {
+			return err
+		}
+
+		if outboxEvent != nil {
+			outboxModel := outboxEventModel{
+				ID:           outboxEvent.ID,
+				AggregateID:  outboxEvent.AggregateID,
+				EventType:    outboxEvent.EventType,
+				RoutingKey:   outboxEvent.RoutingKey,
+				Payload:      string(outboxEvent.Payload),
+				CreatedAt:    outboxEvent.CreatedAt,
+				AttemptCount: 0,
+			}
+			if err := tx.Create(&outboxModel).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

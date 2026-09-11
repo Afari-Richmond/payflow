@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 )
 
 // ErrNotFound is returned when a payment does not exist.
@@ -22,11 +23,11 @@ type PaymentRepository interface {
 	Update(ctx context.Context, payment *domain.Payment) error
 
 	// MarkProcessedAndUpdate atomically records that eventType has been
-	// processed for payment and persists payment's current state, in
+	// processed for payment, persists payment's current state, and
+	// enqueues outboxEvent (if non-nil) for reliable delivery — all in
 	// one transaction. Returns (true, nil) if eventType was already
 	// processed for this payment — a duplicate delivery — in which
-	// case no changes were made and the caller must not treat this as
-	// first-time processing (e.g. must not publish a resulting event
-	// again). Returns (false, nil) the first time.
-	MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, eventType string) (alreadyProcessed bool, err error)
+	// case no changes were made and no event was enqueued. Returns
+	// (false, nil) the first time.
+	MarkProcessedAndUpdate(ctx context.Context, payment *domain.Payment, eventType string, outboxEvent *outbox.Event) (alreadyProcessed bool, err error)
 }

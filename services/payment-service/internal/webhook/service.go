@@ -15,6 +15,7 @@ import (
 
 	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 )
@@ -27,25 +28,20 @@ var ErrInvalidSignature = errors.New("invalid webhook signature")
 // valid JSON or was missing required fields.
 var ErrMalformedPayload = errors.New("malformed webhook payload")
 
-// EventPublisher is the messaging dependency this service needs. A
-// narrow interface (not the concrete *messaging.Publisher) so this
-// package can be tested without a real broker.
-type EventPublisher interface {
-	Publish(ctx context.Context, routingKey string, envelope events.Envelope) error
-}
-
-// Service verifies and processes Paystack webhook deliveries.
+// Service verifies and processes Paystack webhook deliveries. It does
+// not publish events directly — it enqueues them in the outbox, in the
+// same transaction as the payment state change, and a separate worker
+// (internal/outbox) delivers them. See ADR 005.
 type Service struct {
 	repo      repository.PaymentRepository
 	provider  provider.PaymentProvider
-	publisher EventPublisher
 	secretKey string
 	logger    *slog.Logger
 }
 
 // NewService builds a Service.
-func NewService(repo repository.PaymentRepository, paymentProvider provider.PaymentProvider, publisher EventPublisher, secretKey string, logger *slog.Logger) *Service {
-	return &Service{repo: repo, provider: paymentProvider, publisher: publisher, secretKey: secretKey, logger: logger}
+func NewService(repo repository.PaymentRepository, paymentProvider provider.PaymentProvider, secretKey string, logger *slog.Logger) *Service {
+	return &Service{repo: repo, provider: paymentProvider, secretKey: secretKey, logger: logger}
 }
 
 // HandleWebhook verifies rawBody against signature, then processes the
@@ -100,7 +96,7 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 		// and a DB transaction for the common case (redelivered after
 		// processing is fully done and visible). The actual correctness
 		// guarantee against concurrent duplicate deliveries is the
-		// processed_webhook_events unique constraint below, via
+		// processed_webhook_events unique constraint in
 		// MarkProcessedAndUpdate — this check alone has a real race
 		// (two concurrent calls could both pass it before either
 		// writes), which is exactly why that constraint exists.
@@ -118,14 +114,15 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 	if result.Status != provider.TransactionStatusSuccess {
 		payment.Status = domain.StatusFailed
 		payment.UpdatedAt = time.Now().UTC()
-		alreadyProcessed, err := s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent)
+		outboxEvent, err := buildOutboxEvent(events.PaymentFailed, payment, events.PaymentFailedPayload{
+			PaymentID: payment.ID.String(),
+			OrderID:   payment.OrderID.String(),
+		})
 		if err != nil {
 			return err
 		}
-		if !alreadyProcessed {
-			s.publishPaymentFailed(ctx, payment)
-		}
-		return nil
+		_, err = s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent, outboxEvent)
+		return err
 	}
 
 	if result.AmountMinor != payment.AmountMinor || result.Currency != payment.Currency {
@@ -134,49 +131,38 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 
 	payment.Status = domain.StatusSuccess
 	payment.UpdatedAt = time.Now().UTC()
-	alreadyProcessed, err := s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent)
-	if err != nil {
-		return err
-	}
-	if !alreadyProcessed {
-		s.publishPaymentSucceeded(ctx, payment)
-	}
-	return nil
-}
-
-// publishPaymentSucceeded and publishPaymentFailed publish best-effort:
-// the payment's own state is already durably persisted by the time
-// these are called, so a publish failure is logged, not propagated.
-// No Outbox yet (Milestone 11) — this is exactly the dual-write gap
-// that milestone exists to close. See ADR 003.
-func (s *Service) publishPaymentSucceeded(ctx context.Context, payment *domain.Payment) {
-	payload := events.PaymentSucceededPayload{
+	outboxEvent, err := buildOutboxEvent(events.PaymentSucceeded, payment, events.PaymentSucceededPayload{
 		PaymentID:   payment.ID.String(),
 		OrderID:     payment.OrderID.String(),
 		AmountMinor: payment.AmountMinor,
 		Currency:    payment.Currency,
-	}
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, payment.ID.String(), payload)
+	})
 	if err != nil {
-		s.logger.Error("failed to build payment.succeeded envelope", "payment_id", payment.ID, "error", err)
-		return
+		return err
 	}
-	if err := s.publisher.Publish(ctx, events.PaymentSucceeded, envelope); err != nil {
-		s.logger.Error("failed to publish payment.succeeded", "payment_id", payment.ID, "error", err)
-	}
+	_, err = s.repo.MarkProcessedAndUpdate(ctx, payment, chargeSuccessEvent, outboxEvent)
+	return err
 }
 
-func (s *Service) publishPaymentFailed(ctx context.Context, payment *domain.Payment) {
-	payload := events.PaymentFailedPayload{
-		PaymentID: payment.ID.String(),
-		OrderID:   payment.OrderID.String(),
-	}
-	envelope, err := events.NewEnvelope(events.PaymentFailed, payment.ID.String(), payload)
+// buildOutboxEvent encodes payload into a full wire envelope (the same
+// shape order-service's consumer expects) and wraps it as an
+// outbox.Event ready to be persisted in the same transaction as the
+// payment update.
+func buildOutboxEvent(eventType string, payment *domain.Payment, payload any) (*outbox.Event, error) {
+	envelope, err := events.NewEnvelope(eventType, payment.ID.String(), payload)
 	if err != nil {
-		s.logger.Error("failed to build payment.failed envelope", "payment_id", payment.ID, "error", err)
-		return
+		return nil, fmt.Errorf("webhook: build envelope: %w", err)
 	}
-	if err := s.publisher.Publish(ctx, events.PaymentFailed, envelope); err != nil {
-		s.logger.Error("failed to publish payment.failed", "payment_id", payment.ID, "error", err)
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("webhook: encode envelope: %w", err)
 	}
+	return &outbox.Event{
+		ID:          uuid.New(),
+		AggregateID: payment.ID,
+		EventType:   eventType,
+		RoutingKey:  eventType,
+		Payload:     body,
+		CreatedAt:   time.Now().UTC(),
+	}, nil
 }

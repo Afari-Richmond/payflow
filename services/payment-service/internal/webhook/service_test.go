@@ -17,6 +17,7 @@ import (
 
 	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/webhook"
@@ -24,30 +25,6 @@ import (
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-type fakePublisher struct {
-	mu         sync.Mutex
-	published  []events.Envelope
-	routingKey []string
-	err        error
-}
-
-func (f *fakePublisher) Publish(_ context.Context, routingKey string, envelope events.Envelope) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.err != nil {
-		return f.err
-	}
-	f.published = append(f.published, envelope)
-	f.routingKey = append(f.routingKey, routingKey)
-	return nil
-}
-
-func (f *fakePublisher) count() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.published)
 }
 
 const testSecretKey = "sk_test_fake_secret"
@@ -62,7 +39,9 @@ func sign(body []byte) string {
 // guarantee — a mutex-guarded map standing in for the database's
 // (payment_id, event_type) unique constraint — so concurrency tests
 // against this fake exercise the same "only one caller wins" property
-// the real unique constraint provides.
+// the real unique constraint provides. It also records outbox events
+// exactly as MarkProcessedAndUpdate would durably persist them, so
+// tests can assert on what would have been enqueued.
 type fakeRepo struct {
 	mu               sync.Mutex
 	payment          *domain.Payment
@@ -72,6 +51,7 @@ type fakeRepo struct {
 	markProcessedErr error
 	processed        map[string]bool
 	markCallCount    int
+	enqueued         []*outbox.Event
 }
 
 func (f *fakeRepo) Create(_ context.Context, _ *domain.Payment) error { return nil }
@@ -103,7 +83,7 @@ func (f *fakeRepo) Update(_ context.Context, payment *domain.Payment) error {
 	return nil
 }
 
-func (f *fakeRepo) MarkProcessedAndUpdate(_ context.Context, payment *domain.Payment, eventType string) (bool, error) {
+func (f *fakeRepo) MarkProcessedAndUpdate(_ context.Context, payment *domain.Payment, eventType string, outboxEvent *outbox.Event) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -125,6 +105,9 @@ func (f *fakeRepo) MarkProcessedAndUpdate(_ context.Context, payment *domain.Pay
 	f.updated = &snapshot
 	if f.payment != nil && f.payment.ID == payment.ID {
 		f.payment = &snapshot
+	}
+	if outboxEvent != nil {
+		f.enqueued = append(f.enqueued, outboxEvent)
 	}
 	return false, nil
 }
@@ -184,8 +167,7 @@ func TestHandleWebhook_ValidSignature_SuccessfulEvent(t *testing.T) {
 		AmountMinor: payment.AmountMinor,
 		Currency:    payment.Currency,
 	}}
-	pub := &fakePublisher{}
-	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -200,48 +182,62 @@ func TestHandleWebhook_ValidSignature_SuccessfulEvent(t *testing.T) {
 		t.Errorf("expected status %q, got %q", domain.StatusSuccess, repo.updated.Status)
 	}
 
-	if len(pub.published) != 1 {
-		t.Fatalf("expected 1 published event, got %d", len(pub.published))
+	if len(repo.enqueued) != 1 {
+		t.Fatalf("expected 1 outbox event enqueued, got %d", len(repo.enqueued))
 	}
-	if pub.routingKey[0] != events.PaymentSucceeded {
-		t.Errorf("expected routing key %q, got %q", events.PaymentSucceeded, pub.routingKey[0])
+	enqueued := repo.enqueued[0]
+	if enqueued.RoutingKey != events.PaymentSucceeded {
+		t.Errorf("expected routing key %q, got %q", events.PaymentSucceeded, enqueued.RoutingKey)
+	}
+	if enqueued.AggregateID != payment.ID {
+		t.Errorf("expected aggregate id %v, got %v", payment.ID, enqueued.AggregateID)
+	}
+
+	var envelope events.Envelope
+	if err := json.Unmarshal(enqueued.Payload, &envelope); err != nil {
+		t.Fatalf("failed to decode enqueued envelope: %v", err)
 	}
 	var payload events.PaymentSucceededPayload
-	if err := json.Unmarshal(pub.published[0].Payload, &payload); err != nil {
-		t.Fatalf("failed to decode published payload: %v", err)
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		t.Fatalf("failed to decode enqueued payload: %v", err)
 	}
 	if payload.PaymentID != payment.ID.String() {
 		t.Errorf("expected payment id %q in payload, got %q", payment.ID, payload.PaymentID)
 	}
 }
 
-func TestHandleWebhook_PublishFailure_DoesNotFailWebhook(t *testing.T) {
-	// No Outbox yet (Milestone 11) — a publish failure after the DB is
-	// already updated is swallowed, not propagated. This is the known
-	// dual-write gap, not a bug; documented in ADR 003.
+func TestHandleWebhook_RepositoryFailure_OutboxWriteNeverSucceedsPartially(t *testing.T) {
+	// Proves the point of writing payment + outbox in one transaction:
+	// if MarkProcessedAndUpdate fails, the caller sees a single error —
+	// there's no way to observe "payment updated but outbox row
+	// missing" or vice versa, because the fake (like the real
+	// implementation) only ever returns success after both succeed
+	// together.
 	payment := newTestPayment()
-	repo := &fakeRepo{payment: payment}
+	repo := &fakeRepo{payment: payment, markProcessedErr: errors.New("db connection lost")}
 	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{
 		Status:      provider.TransactionStatusSuccess,
 		AmountMinor: payment.AmountMinor,
 		Currency:    payment.Currency,
 	}}
-	pub := &fakePublisher{err: errors.New("broker unavailable")}
-	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
-	if err != nil {
-		t.Fatalf("expected the webhook to still succeed despite the publish failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected an error when the repository transaction fails")
 	}
-	if repo.updated == nil || repo.updated.Status != domain.StatusSuccess {
-		t.Error("expected the payment's DB state to still be updated to SUCCESS")
+	if repo.updated != nil {
+		t.Error("expected no state change when the transaction fails")
+	}
+	if len(repo.enqueued) != 0 {
+		t.Error("expected no outbox event enqueued when the transaction fails")
 	}
 }
 
 func TestHandleWebhook_InvalidSignature(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(uuid.New().String())
 	err := svc.HandleWebhook(context.Background(), body, "not-the-right-signature")
@@ -256,7 +252,7 @@ func TestHandleWebhook_InvalidSignature(t *testing.T) {
 
 func TestHandleWebhook_MalformedPayload(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey, testLogger())
 
 	body := []byte(`not valid json`)
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -268,7 +264,7 @@ func TestHandleWebhook_MalformedPayload(t *testing.T) {
 
 func TestHandleWebhook_UnsupportedEvent(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey, testLogger())
 
 	body, _ := json.Marshal(map[string]any{
 		"event": "transfer.success",
@@ -290,7 +286,7 @@ func TestHandleWebhook_VerifiedAsFailed(t *testing.T) {
 	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{
 		Status: provider.TransactionStatusFailed,
 	}}
-	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -304,6 +300,9 @@ func TestHandleWebhook_VerifiedAsFailed(t *testing.T) {
 	if repo.updated.Status != domain.StatusFailed {
 		t.Errorf("expected status %q, got %q", domain.StatusFailed, repo.updated.Status)
 	}
+	if len(repo.enqueued) != 1 || repo.enqueued[0].RoutingKey != events.PaymentFailed {
+		t.Errorf("expected 1 payment.failed outbox event, got %+v", repo.enqueued)
+	}
 }
 
 func TestHandleWebhook_DuplicateDelivery_AlreadySuccess(t *testing.T) {
@@ -311,7 +310,7 @@ func TestHandleWebhook_DuplicateDelivery_AlreadySuccess(t *testing.T) {
 	payment.Status = domain.StatusSuccess
 	repo := &fakeRepo{payment: payment}
 	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{Status: provider.TransactionStatusSuccess}}
-	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -322,11 +321,14 @@ func TestHandleWebhook_DuplicateDelivery_AlreadySuccess(t *testing.T) {
 	if repo.updated != nil {
 		t.Error("expected a duplicate delivery for an already-SUCCESS payment to be a no-op")
 	}
+	if len(repo.enqueued) != 0 {
+		t.Error("expected no outbox event enqueued for a duplicate delivery")
+	}
 }
 
 func TestHandleWebhook_UnknownReference_SafelyIgnored(t *testing.T) {
 	repo := &fakeRepo{} // no payment stored
-	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(uuid.New().String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -344,7 +346,7 @@ func TestHandleWebhook_AmountMismatch_Rejected(t *testing.T) {
 		AmountMinor: payment.AmountMinor + 1, // mismatch
 		Currency:    payment.Currency,
 	}}
-	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -355,15 +357,17 @@ func TestHandleWebhook_AmountMismatch_Rejected(t *testing.T) {
 	if repo.updated != nil {
 		t.Error("expected no state change on amount mismatch")
 	}
+	if len(repo.enqueued) != 0 {
+		t.Error("expected no outbox event enqueued on amount mismatch")
+	}
 }
 
 // TestHandleWebhook_ConcurrentDuplicateDeliveries is the concurrency
-// test the milestone's own task list asks for: N goroutines deliver
-// the *same* webhook simultaneously (simulating Paystack redelivering
-// while the first attempt is still in flight — the exact race the
-// Milestone 8 status-check-only guard could not close). Exactly one
+// test Milestone 10's task list asked for, still valid here: N
+// goroutines deliver the *same* webhook simultaneously. Exactly one
 // must "win" — the point of MarkProcessedAndUpdate's atomic marker
-// insert, not the earlier fast-path status check.
+// insert, not the earlier fast-path status check. Now also asserts
+// exactly one outbox event is enqueued, not just one DB update.
 func TestHandleWebhook_ConcurrentDuplicateDeliveries(t *testing.T) {
 	payment := newTestPayment()
 	repo := &fakeRepo{payment: payment}
@@ -375,8 +379,7 @@ func TestHandleWebhook_ConcurrentDuplicateDeliveries(t *testing.T) {
 		},
 		delay: 20 * time.Millisecond,
 	}
-	pub := &fakePublisher{}
-	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
+	svc := webhook.NewService(repo, prov, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	signature := sign(body)
@@ -401,12 +404,13 @@ func TestHandleWebhook_ConcurrentDuplicateDeliveries(t *testing.T) {
 
 	repo.mu.Lock()
 	markCalls := repo.markCallCount
+	enqueuedCount := len(repo.enqueued)
 	repo.mu.Unlock()
+
 	if markCalls != concurrency {
 		t.Errorf("expected MarkProcessedAndUpdate called %d times (once per delivery), got %d", concurrency, markCalls)
 	}
-
-	if got := pub.count(); got != 1 {
-		t.Errorf("expected exactly 1 published event despite %d concurrent deliveries, got %d", concurrency, got)
+	if enqueuedCount != 1 {
+		t.Errorf("expected exactly 1 outbox event enqueued despite %d concurrent deliveries, got %d", concurrency, enqueuedCount)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/config"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/messaging"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider/paystack"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/transport/grpcapi"
@@ -67,8 +68,11 @@ func main() {
 	defer publisher.Close()
 
 	repo := repository.NewGormPaymentRepository(db)
+	outboxRepo := repository.NewGormOutboxRepository(db)
 	paymentService := application.NewPaymentService(repo, paymentProvider)
-	webhookService := webhook.NewService(repo, paymentProvider, publisher, cfg.PaystackSecretKey, logger)
+	webhookService := webhook.NewService(repo, paymentProvider, cfg.PaystackSecretKey, logger)
+
+	outboxWorker := outbox.NewWorker(outboxRepo, publisher, logger)
 
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
@@ -83,6 +87,14 @@ func main() {
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(grpcServer, healthServer)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("starting outbox worker")
+		outboxWorker.Run(ctx)
+	}()
+
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("starting payment-service", "port", cfg.Port)
@@ -91,9 +103,6 @@ func main() {
 		}
 		close(serverErr)
 	}()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	select {
 	case err := <-serverErr:

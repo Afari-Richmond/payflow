@@ -14,7 +14,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/outbox"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 )
 
@@ -120,6 +122,7 @@ func TestGormPaymentRepository_MarkProcessedAndUpdate_ConcurrentCallsOnlyOneWins
 		t.Fatalf("Create failed: %v", err)
 	}
 	t.Cleanup(func() {
+		db.Exec("DELETE FROM outbox_events WHERE aggregate_id = ?", payment.ID)
 		db.Exec("DELETE FROM processed_webhook_events WHERE payment_id = ?", payment.ID)
 		db.Exec("DELETE FROM payments WHERE id = ?", payment.ID)
 	})
@@ -135,7 +138,16 @@ func TestGormPaymentRepository_MarkProcessedAndUpdate_ConcurrentCallsOnlyOneWins
 			updated.Status = domain.StatusSuccess
 			updated.UpdatedAt = time.Now().UTC()
 
-			alreadyProcessed, err := repo.MarkProcessedAndUpdate(ctx, &updated, "charge.success")
+			outboxEvent := &outbox.Event{
+				ID:          uuid.New(),
+				AggregateID: payment.ID,
+				EventType:   events.PaymentSucceeded,
+				RoutingKey:  events.PaymentSucceeded,
+				Payload:     []byte(`{}`),
+				CreatedAt:   time.Now().UTC(),
+			}
+
+			alreadyProcessed, err := repo.MarkProcessedAndUpdate(ctx, &updated, "charge.success", outboxEvent)
 			if err != nil {
 				errCount.Add(1)
 				return
@@ -160,5 +172,13 @@ func TestGormPaymentRepository_MarkProcessedAndUpdate_ConcurrentCallsOnlyOneWins
 	}
 	if final.Status != domain.StatusSuccess {
 		t.Errorf("expected final status %q, got %q", domain.StatusSuccess, final.Status)
+	}
+
+	var outboxCount int64
+	if err := db.Table("outbox_events").Where("aggregate_id = ?", payment.ID).Count(&outboxCount).Error; err != nil {
+		t.Fatalf("failed to count outbox rows: %v", err)
+	}
+	if outboxCount != 1 {
+		t.Errorf("expected exactly 1 outbox row despite %d concurrent calls, got %d", concurrency, outboxCount)
 	}
 }
