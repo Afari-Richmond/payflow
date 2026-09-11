@@ -1,9 +1,11 @@
 package events_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/Afari-Richmond/payflow/pkg/correlation"
 	"github.com/Afari-Richmond/payflow/pkg/events"
 )
 
@@ -15,7 +17,7 @@ func TestNewEnvelope_RoundTrip(t *testing.T) {
 		Currency:    "GHS",
 	}
 
-	envelope, err := events.NewEnvelope(events.PaymentSucceeded, payload.PaymentID, payload)
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, payload.PaymentID, payload)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +48,7 @@ func TestNewEnvelope_RoundTrip(t *testing.T) {
 }
 
 func TestEnvelope_JSONRoundTrip(t *testing.T) {
-	envelope, err := events.NewEnvelope(events.PaymentFailed, "payment-123", events.PaymentFailedPayload{
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentFailed, "payment-123", events.PaymentFailedPayload{
 		PaymentID: "payment-123",
 		OrderID:   "order-456",
 	})
@@ -69,5 +71,30 @@ func TestEnvelope_JSONRoundTrip(t *testing.T) {
 	}
 	if decoded.EventType != events.PaymentFailed {
 		t.Errorf("expected event type %q, got %q", events.PaymentFailed, decoded.EventType)
+	}
+}
+
+func TestNewEnvelope_CarriesCorrelationIDFromContext(t *testing.T) {
+	id := correlation.New()
+	ctx := correlation.WithID(context.Background(), id)
+
+	envelope, err := events.NewEnvelope(ctx, events.PaymentSucceeded, "payment-123", events.PaymentSucceededPayload{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if envelope.CorrelationID != id {
+		t.Errorf("expected correlation id %q, got %q", id, envelope.CorrelationID)
+	}
+}
+
+func TestNewEnvelope_NoCorrelationIDInContext(t *testing.T) {
+	envelope, err := events.NewEnvelope(context.Background(), events.PaymentSucceeded, "payment-123", events.PaymentSucceededPayload{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if envelope.CorrelationID != "" {
+		t.Errorf("expected empty correlation id when none was set, got %q", envelope.CorrelationID)
 	}
 }
