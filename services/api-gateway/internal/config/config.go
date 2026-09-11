@@ -10,14 +10,17 @@ type Config struct {
 	Port string
 	// OrderServiceAddr is order-service's gRPC address.
 	OrderServiceAddr string
+	// PaymentServiceAddr is payment-service's gRPC address.
+	PaymentServiceAddr string
 }
 
 // Load reads configuration from the environment, applying defaults for
 // anything unset.
 func Load() Config {
 	return Config{
-		Port:             envOrDefault("GATEWAY_PORT", "8080"),
-		OrderServiceAddr: envOrDefault("ORDER_SERVICE_ADDR", "localhost:9090"),
+		Port:               envOrDefault("GATEWAY_PORT", "8080"),
+		OrderServiceAddr:   envOrDefault("ORDER_SERVICE_ADDR", "localhost:9090"),
+		PaymentServiceAddr: envOrDefault("PAYMENT_SERVICE_ADDR", "localhost:9091"),
 	}
 }
 

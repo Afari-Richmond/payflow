@@ -11,7 +11,7 @@ import (
 )
 
 // NewRouter builds the api-gateway's HTTP router.
-func NewRouter(logger *slog.Logger, orders OrderCreator) *gin.Engine {
+func NewRouter(logger *slog.Logger, orders OrderCreator, webhooks WebhookForwarder) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
@@ -22,6 +22,7 @@ func NewRouter(logger *slog.Logger, orders OrderCreator) *gin.Engine {
 	router.GET("/docs", DocsHandler)
 	router.GET("/docs/swagger.json", SwaggerSpecHandler)
 	router.POST("/api/v1/orders", CreateOrderHandler(orders))
+	router.POST("/webhooks/paystack", PaystackWebhookHandler(webhooks))
 
 	return router
 }

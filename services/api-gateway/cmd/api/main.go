@@ -34,7 +34,14 @@ func main() {
 	}
 	defer orderClient.Close()
 
-	router := httpapi.NewRouter(logger, orderClient)
+	paymentClient, err := client.NewPaymentClient(cfg.PaymentServiceAddr)
+	if err != nil {
+		logger.Error("failed to create payment-service client", "error", err)
+		os.Exit(1)
+	}
+	defer paymentClient.Close()
+
+	router := httpapi.NewRouter(logger, orderClient, paymentClient)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -13,7 +13,7 @@ import (
 
 func TestHealthEndpoint(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	router := httpapi.NewRouter(logger, fakeOrderCreator{})
+	router := httpapi.NewRouter(logger, fakeOrderCreator{}, fakeWebhookForwarder{})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()

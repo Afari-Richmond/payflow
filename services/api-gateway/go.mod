@@ -3,7 +3,7 @@ module github.com/Afari-Richmond/payflow/services/api-gateway
 go 1.26.5
 
 require (
-	github.com/Afari-Richmond/payflow/proto v0.0.0-20260909103557-3a07d493b266
+	github.com/Afari-Richmond/payflow/proto v0.0.0-20260910120653-5b04372b51d1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/swaggo/swag v1.16.6
 	google.golang.org/grpc v1.83.2

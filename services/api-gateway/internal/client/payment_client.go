@@ -1,0 +1,44 @@
+package client
+
+import (
+	"context"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	paymentv1 "github.com/Afari-Richmond/payflow/proto/payment/v1"
+)
+
+// PaymentClient wraps the gRPC connection to payment-service.
+type PaymentClient struct {
+	conn   *grpc.ClientConn
+	client paymentv1.PaymentServiceClient
+}
+
+// NewPaymentClient dials payment-service at addr.
+func NewPaymentClient(addr string) (*PaymentClient, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	return &PaymentClient{
+		conn:   conn,
+		client: paymentv1.NewPaymentServiceClient(conn),
+	}, nil
+}
+
+// HandleWebhook forwards a raw webhook delivery to payment-service
+// untouched — see ADR 002. The gateway never inspects rawBody or
+// signature; payment-service owns verification entirely.
+func (c *PaymentClient) HandleWebhook(ctx context.Context, rawBody []byte, signature string) error {
+	_, err := c.client.HandleWebhook(ctx, &paymentv1.HandleWebhookRequest{
+		RawBody:   rawBody,
+		Signature: signature,
+	})
+	return err
+}
+
+// Close closes the underlying gRPC connection.
+func (c *PaymentClient) Close() error {
+	return c.conn.Close()
+}

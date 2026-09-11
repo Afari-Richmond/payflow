@@ -1,5 +1,5 @@
-github.com/Afari-Richmond/payflow/proto v0.0.0-20260909103557-3a07d493b266 h1:jqCgudZny63cPYfbfhQXzwk+VKKpLjw4OMF03X5LHj0=
-github.com/Afari-Richmond/payflow/proto v0.0.0-20260909103557-3a07d493b266/go.mod h1:dAJyai9Qpjcp2RU82TvJheqNqRp9fjm2lDt/V5AzgQ8=
+github.com/Afari-Richmond/payflow/proto v0.0.0-20260910120653-5b04372b51d1 h1:GqilqfpIPrTBURhM3q6cpg/sYEEkeeLTp/PNtZb1INE=
+github.com/Afari-Richmond/payflow/proto v0.0.0-20260910120653-5b04372b51d1/go.mod h1:dAJyai9Qpjcp2RU82TvJheqNqRp9fjm2lDt/V5AzgQ8=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/KyleBanks/depth v1.2.1 h1:5h8fQADFrWtarTdtDudMmGsC7GPbOAu6RVB3ffsVFHc=
 github.com/KyleBanks/depth v1.2.1/go.mod h1:jzSb9d0L43HxTQfT+oSA1EEp2q+ne2uh6XgeJcm8brE=
