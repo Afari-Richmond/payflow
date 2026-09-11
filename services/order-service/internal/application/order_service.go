@@ -5,12 +5,14 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/mail"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/domain"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/repository"
 )
@@ -77,4 +79,57 @@ func (s *OrderService) CreateOrder(ctx context.Context, email string, amountMino
 	}
 
 	return order, nil
+}
+
+// HandlePaymentEvent processes a payment domain event consumed from
+// RabbitMQ. The returned error's type tells the consumer how to
+// acknowledge: an *events.PermanentError means dead-letter (retrying
+// will never help — malformed data, unknown order); any other error
+// means requeue (transient — e.g. a DB blip); nil means ack.
+func (s *OrderService) HandlePaymentEvent(ctx context.Context, envelope events.Envelope) error {
+	switch envelope.EventType {
+	case events.PaymentSucceeded:
+		return s.handlePaymentSucceeded(ctx, envelope)
+	case events.PaymentFailed:
+		// No order state change currently modeled for a failed payment
+		// attempt — the order stays PENDING_PAYMENT so the customer can
+		// retry. Still explicitly handled (not falling into default) so
+		// it's clear this event type is recognized, not merely ignored
+		// by omission.
+		return nil
+	default:
+		// Unsupported event type — safely ignored, not an error.
+		return nil
+	}
+}
+
+func (s *OrderService) handlePaymentSucceeded(ctx context.Context, envelope events.Envelope) error {
+	var payload events.PaymentSucceededPayload
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		return events.NewPermanentError(err)
+	}
+
+	orderID, err := uuid.Parse(payload.OrderID)
+	if err != nil {
+		return events.NewPermanentError(err)
+	}
+
+	order, err := s.repo.GetByID(ctx, orderID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return events.NewPermanentError(err)
+	}
+	if err != nil {
+		return err // transient — DB issue, worth retrying
+	}
+
+	if order.Status == domain.StatusPaid {
+		// Already processed — duplicate delivery, safe no-op. Same
+		// basic-idempotency scope as payment-service's webhook handler
+		// (Milestone 8); full processed-event tracking is Milestone 10.
+		return nil
+	}
+
+	order.Status = domain.StatusPaid
+	order.UpdatedAt = time.Now().UTC()
+	return s.repo.Update(ctx, order)
 }

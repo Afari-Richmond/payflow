@@ -3,8 +3,10 @@ module github.com/Afari-Richmond/payflow/services/order-service
 go 1.26.5
 
 require (
+	github.com/Afari-Richmond/payflow/pkg/events v0.0.0-20260911022248-46d673f3db00
 	github.com/Afari-Richmond/payflow/proto v0.0.0-20260909103557-3a07d493b266
 	github.com/google/uuid v1.6.0
+	github.com/rabbitmq/amqp091-go v1.14.0
 	google.golang.org/grpc v1.83.2
 	gorm.io/driver/postgres v1.6.2
 	gorm.io/gorm v1.31.2

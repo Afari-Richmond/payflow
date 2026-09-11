@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	amqp "github.com/rabbitmq/amqp091-go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -19,6 +20,7 @@ import (
 	orderv1 "github.com/Afari-Richmond/payflow/proto/order/v1"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/config"
+	"github.com/Afari-Richmond/payflow/services/order-service/internal/messaging"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/order-service/internal/transport/grpcapi"
 )
@@ -38,6 +40,20 @@ func main() {
 	repo := repository.NewGormOrderRepository(db)
 	orderService := application.NewOrderService(repo)
 
+	amqpConn, err := amqp.Dial(cfg.RabbitMQURL)
+	if err != nil {
+		logger.Error("failed to connect to RabbitMQ", "error", err)
+		os.Exit(1)
+	}
+	defer amqpConn.Close()
+
+	consumer, err := messaging.NewConsumer(amqpConn, logger)
+	if err != nil {
+		logger.Error("failed to create event consumer", "error", err)
+		os.Exit(1)
+	}
+	defer consumer.Close()
+
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
 		logger.Error("failed to listen", "error", err)
@@ -51,6 +67,16 @@ func main() {
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(grpcServer, healthServer)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("starting payment-events consumer")
+		if err := consumer.Run(ctx, orderService.HandlePaymentEvent); err != nil {
+			logger.Error("consumer stopped unexpectedly", "error", err)
+		}
+	}()
+
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("starting order-service", "port", cfg.Port)
@@ -59,9 +85,6 @@ func main() {
 		}
 		close(serverErr)
 	}()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	select {
 	case err := <-serverErr:

@@ -19,4 +19,5 @@ var ErrNotFound = errors.New("order not found")
 type OrderRepository interface {
 	Create(ctx context.Context, order *domain.Order) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error)
+	Update(ctx context.Context, order *domain.Order) error
 }

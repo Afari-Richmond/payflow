@@ -78,3 +78,18 @@ func (r *GormOrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domai
 	}
 	return toDomain(model), nil
 }
+
+// Update persists changes to an existing order (status transitions,
+// etc). Uses Save (full-row overwrite by primary key), not Updates —
+// GORM's Updates silently skips zero-value struct fields.
+func (r *GormOrderRepository) Update(ctx context.Context, order *domain.Order) error {
+	model := toModel(order)
+	result := r.db.WithContext(ctx).Save(&model)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
