@@ -7,16 +7,38 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/webhook"
 )
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+type fakePublisher struct {
+	published  []events.Envelope
+	routingKey []string
+	err        error
+}
+
+func (f *fakePublisher) Publish(_ context.Context, routingKey string, envelope events.Envelope) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.published = append(f.published, envelope)
+	f.routingKey = append(f.routingKey, routingKey)
+	return nil
+}
 
 const testSecretKey = "sk_test_fake_secret"
 
@@ -104,7 +126,8 @@ func TestHandleWebhook_ValidSignature_SuccessfulEvent(t *testing.T) {
 		AmountMinor: payment.AmountMinor,
 		Currency:    payment.Currency,
 	}}
-	svc := webhook.NewService(repo, prov, testSecretKey)
+	pub := &fakePublisher{}
+	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -118,11 +141,49 @@ func TestHandleWebhook_ValidSignature_SuccessfulEvent(t *testing.T) {
 	if repo.updated.Status != domain.StatusSuccess {
 		t.Errorf("expected status %q, got %q", domain.StatusSuccess, repo.updated.Status)
 	}
+
+	if len(pub.published) != 1 {
+		t.Fatalf("expected 1 published event, got %d", len(pub.published))
+	}
+	if pub.routingKey[0] != events.PaymentSucceeded {
+		t.Errorf("expected routing key %q, got %q", events.PaymentSucceeded, pub.routingKey[0])
+	}
+	var payload events.PaymentSucceededPayload
+	if err := json.Unmarshal(pub.published[0].Payload, &payload); err != nil {
+		t.Fatalf("failed to decode published payload: %v", err)
+	}
+	if payload.PaymentID != payment.ID.String() {
+		t.Errorf("expected payment id %q in payload, got %q", payment.ID, payload.PaymentID)
+	}
+}
+
+func TestHandleWebhook_PublishFailure_DoesNotFailWebhook(t *testing.T) {
+	// No Outbox yet (Milestone 11) — a publish failure after the DB is
+	// already updated is swallowed, not propagated. This is the known
+	// dual-write gap, not a bug; documented in ADR 003.
+	payment := newTestPayment()
+	repo := &fakeRepo{payment: payment}
+	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{
+		Status:      provider.TransactionStatusSuccess,
+		AmountMinor: payment.AmountMinor,
+		Currency:    payment.Currency,
+	}}
+	pub := &fakePublisher{err: errors.New("broker unavailable")}
+	svc := webhook.NewService(repo, prov, pub, testSecretKey, testLogger())
+
+	body := chargeSuccessBody(payment.ID.String())
+	err := svc.HandleWebhook(context.Background(), body, sign(body))
+	if err != nil {
+		t.Fatalf("expected the webhook to still succeed despite the publish failure, got: %v", err)
+	}
+	if repo.updated == nil || repo.updated.Status != domain.StatusSuccess {
+		t.Error("expected the payment's DB state to still be updated to SUCCESS")
+	}
 }
 
 func TestHandleWebhook_InvalidSignature(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey)
+	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(uuid.New().String())
 	err := svc.HandleWebhook(context.Background(), body, "not-the-right-signature")
@@ -137,7 +198,7 @@ func TestHandleWebhook_InvalidSignature(t *testing.T) {
 
 func TestHandleWebhook_MalformedPayload(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey)
+	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := []byte(`not valid json`)
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -149,7 +210,7 @@ func TestHandleWebhook_MalformedPayload(t *testing.T) {
 
 func TestHandleWebhook_UnsupportedEvent(t *testing.T) {
 	repo := &fakeRepo{}
-	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey)
+	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
 
 	body, _ := json.Marshal(map[string]any{
 		"event": "transfer.success",
@@ -171,7 +232,7 @@ func TestHandleWebhook_VerifiedAsFailed(t *testing.T) {
 	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{
 		Status: provider.TransactionStatusFailed,
 	}}
-	svc := webhook.NewService(repo, prov, testSecretKey)
+	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -192,7 +253,7 @@ func TestHandleWebhook_DuplicateDelivery_AlreadySuccess(t *testing.T) {
 	payment.Status = domain.StatusSuccess
 	repo := &fakeRepo{payment: payment}
 	prov := fakeProvider{verifyResult: provider.VerifyTransactionResult{Status: provider.TransactionStatusSuccess}}
-	svc := webhook.NewService(repo, prov, testSecretKey)
+	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -207,7 +268,7 @@ func TestHandleWebhook_DuplicateDelivery_AlreadySuccess(t *testing.T) {
 
 func TestHandleWebhook_UnknownReference_SafelyIgnored(t *testing.T) {
 	repo := &fakeRepo{} // no payment stored
-	svc := webhook.NewService(repo, fakeProvider{}, testSecretKey)
+	svc := webhook.NewService(repo, fakeProvider{}, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(uuid.New().String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))
@@ -225,7 +286,7 @@ func TestHandleWebhook_AmountMismatch_Rejected(t *testing.T) {
 		AmountMinor: payment.AmountMinor + 1, // mismatch
 		Currency:    payment.Currency,
 	}}
-	svc := webhook.NewService(repo, prov, testSecretKey)
+	svc := webhook.NewService(repo, prov, &fakePublisher{}, testSecretKey, testLogger())
 
 	body := chargeSuccessBody(payment.ID.String())
 	err := svc.HandleWebhook(context.Background(), body, sign(body))

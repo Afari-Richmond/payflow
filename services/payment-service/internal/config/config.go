@@ -17,6 +17,9 @@ type Config struct {
 	// production (the real API is used) — only set to point at a local
 	// fake server for testing/manual verification.
 	PaystackBaseURL string
+	// RabbitMQURL is the AMQP connection string used to publish domain
+	// events.
+	RabbitMQURL string
 }
 
 // Load reads configuration from the environment, applying defaults for
@@ -27,6 +30,7 @@ func Load() Config {
 		DatabaseURL:       envOrDefault("PAYMENT_DATABASE_URL", "postgres://payflow:payflow@localhost:5433/payflow_payment?sslmode=disable"),
 		PaystackSecretKey: os.Getenv("PAYSTACK_SECRET_KEY"),
 		PaystackBaseURL:   os.Getenv("PAYSTACK_BASE_URL"),
+		RabbitMQURL:       envOrDefault("RABBITMQ_URL", "amqp://payflow:payflow@localhost:5672/"),
 	}
 }
 

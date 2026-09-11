@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Afari-Richmond/payflow/pkg/events"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/domain"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
@@ -25,16 +27,25 @@ var ErrInvalidSignature = errors.New("invalid webhook signature")
 // valid JSON or was missing required fields.
 var ErrMalformedPayload = errors.New("malformed webhook payload")
 
+// EventPublisher is the messaging dependency this service needs. A
+// narrow interface (not the concrete *messaging.Publisher) so this
+// package can be tested without a real broker.
+type EventPublisher interface {
+	Publish(ctx context.Context, routingKey string, envelope events.Envelope) error
+}
+
 // Service verifies and processes Paystack webhook deliveries.
 type Service struct {
 	repo      repository.PaymentRepository
 	provider  provider.PaymentProvider
+	publisher EventPublisher
 	secretKey string
+	logger    *slog.Logger
 }
 
 // NewService builds a Service.
-func NewService(repo repository.PaymentRepository, paymentProvider provider.PaymentProvider, secretKey string) *Service {
-	return &Service{repo: repo, provider: paymentProvider, secretKey: secretKey}
+func NewService(repo repository.PaymentRepository, paymentProvider provider.PaymentProvider, publisher EventPublisher, secretKey string, logger *slog.Logger) *Service {
+	return &Service{repo: repo, provider: paymentProvider, publisher: publisher, secretKey: secretKey, logger: logger}
 }
 
 // HandleWebhook verifies rawBody against signature, then processes the
@@ -103,7 +114,11 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 	if result.Status != provider.TransactionStatusSuccess {
 		payment.Status = domain.StatusFailed
 		payment.UpdatedAt = time.Now().UTC()
-		return s.repo.Update(ctx, payment)
+		if err := s.repo.Update(ctx, payment); err != nil {
+			return err
+		}
+		s.publishPaymentFailed(ctx, payment)
+		return nil
 	}
 
 	if result.AmountMinor != payment.AmountMinor || result.Currency != payment.Currency {
@@ -112,5 +127,46 @@ func (s *Service) handleChargeSuccess(ctx context.Context, reference string) err
 
 	payment.Status = domain.StatusSuccess
 	payment.UpdatedAt = time.Now().UTC()
-	return s.repo.Update(ctx, payment)
+	if err := s.repo.Update(ctx, payment); err != nil {
+		return err
+	}
+	s.publishPaymentSucceeded(ctx, payment)
+	return nil
+}
+
+// publishPaymentSucceeded and publishPaymentFailed publish best-effort:
+// the payment's own state is already durably persisted by the time
+// these are called, so a publish failure is logged, not propagated.
+// No Outbox yet (Milestone 11) — this is exactly the dual-write gap
+// that milestone exists to close. See ADR 003.
+func (s *Service) publishPaymentSucceeded(ctx context.Context, payment *domain.Payment) {
+	payload := events.PaymentSucceededPayload{
+		PaymentID:   payment.ID.String(),
+		OrderID:     payment.OrderID.String(),
+		AmountMinor: payment.AmountMinor,
+		Currency:    payment.Currency,
+	}
+	envelope, err := events.NewEnvelope(events.PaymentSucceeded, payment.ID.String(), payload)
+	if err != nil {
+		s.logger.Error("failed to build payment.succeeded envelope", "payment_id", payment.ID, "error", err)
+		return
+	}
+	if err := s.publisher.Publish(ctx, events.PaymentSucceeded, envelope); err != nil {
+		s.logger.Error("failed to publish payment.succeeded", "payment_id", payment.ID, "error", err)
+	}
+}
+
+func (s *Service) publishPaymentFailed(ctx context.Context, payment *domain.Payment) {
+	payload := events.PaymentFailedPayload{
+		PaymentID: payment.ID.String(),
+		OrderID:   payment.OrderID.String(),
+	}
+	envelope, err := events.NewEnvelope(events.PaymentFailed, payment.ID.String(), payload)
+	if err != nil {
+		s.logger.Error("failed to build payment.failed envelope", "payment_id", payment.ID, "error", err)
+		return
+	}
+	if err := s.publisher.Publish(ctx, events.PaymentFailed, envelope); err != nil {
+		s.logger.Error("failed to publish payment.failed", "payment_id", payment.ID, "error", err)
+	}
 }

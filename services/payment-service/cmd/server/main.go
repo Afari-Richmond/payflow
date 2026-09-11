@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	amqp "github.com/rabbitmq/amqp091-go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -21,6 +22,7 @@ import (
 	paymentv1 "github.com/Afari-Richmond/payflow/proto/payment/v1"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/application"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/config"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/messaging"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider/paystack"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/transport/grpcapi"
@@ -50,9 +52,23 @@ func main() {
 	}
 	paymentProvider := paystack.NewClient(cfg.PaystackSecretKey, paystackOpts...)
 
+	amqpConn, err := amqp.Dial(cfg.RabbitMQURL)
+	if err != nil {
+		logger.Error("failed to connect to RabbitMQ", "error", err)
+		os.Exit(1)
+	}
+	defer amqpConn.Close()
+
+	publisher, err := messaging.NewPublisher(amqpConn)
+	if err != nil {
+		logger.Error("failed to create event publisher", "error", err)
+		os.Exit(1)
+	}
+	defer publisher.Close()
+
 	repo := repository.NewGormPaymentRepository(db)
 	paymentService := application.NewPaymentService(repo, paymentProvider)
-	webhookService := webhook.NewService(repo, paymentProvider, cfg.PaystackSecretKey)
+	webhookService := webhook.NewService(repo, paymentProvider, publisher, cfg.PaystackSecretKey, logger)
 
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
