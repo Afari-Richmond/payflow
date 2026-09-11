@@ -41,7 +41,7 @@ func TestPaymentServer_CreatePayment_Success(t *testing.T) {
 	server := grpcapi.NewPaymentServer(fakePaymentCreator{
 		payment:          payment,
 		authorizationURL: "https://checkout.paystack.com/abc123",
-	})
+	}, fakeWebhookHandler{})
 
 	resp, err := server.CreatePayment(context.Background(), &paymentv1.CreatePaymentRequest{
 		OrderId:     payment.OrderID.String(),
@@ -65,7 +65,7 @@ func TestPaymentServer_CreatePayment_Success(t *testing.T) {
 }
 
 func TestPaymentServer_CreatePayment_ValidationError(t *testing.T) {
-	server := grpcapi.NewPaymentServer(fakePaymentCreator{err: application.ErrInvalidAmount})
+	server := grpcapi.NewPaymentServer(fakePaymentCreator{err: application.ErrInvalidAmount}, fakeWebhookHandler{})
 
 	_, err := server.CreatePayment(context.Background(), &paymentv1.CreatePaymentRequest{
 		OrderId:     uuid.New().String(),
@@ -84,7 +84,7 @@ func TestPaymentServer_CreatePayment_ValidationError(t *testing.T) {
 }
 
 func TestPaymentServer_CreatePayment_InternalError(t *testing.T) {
-	server := grpcapi.NewPaymentServer(fakePaymentCreator{err: errors.New("db connection lost")})
+	server := grpcapi.NewPaymentServer(fakePaymentCreator{err: errors.New("db connection lost")}, fakeWebhookHandler{})
 
 	_, err := server.CreatePayment(context.Background(), &paymentv1.CreatePaymentRequest{
 		OrderId:     uuid.New().String(),

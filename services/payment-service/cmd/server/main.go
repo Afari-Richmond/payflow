@@ -24,6 +24,7 @@ import (
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/provider/paystack"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/repository"
 	"github.com/Afari-Richmond/payflow/services/payment-service/internal/transport/grpcapi"
+	"github.com/Afari-Richmond/payflow/services/payment-service/internal/webhook"
 )
 
 func main() {
@@ -51,6 +52,7 @@ func main() {
 
 	repo := repository.NewGormPaymentRepository(db)
 	paymentService := application.NewPaymentService(repo, paymentProvider)
+	webhookService := webhook.NewService(repo, paymentProvider, cfg.PaystackSecretKey)
 
 	lis, err := net.Listen("tcp", ":"+cfg.Port)
 	if err != nil {
@@ -59,7 +61,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	paymentv1.RegisterPaymentServiceServer(grpcServer, grpcapi.NewPaymentServer(paymentService))
+	paymentv1.RegisterPaymentServiceServer(grpcServer, grpcapi.NewPaymentServer(paymentService, webhookService))
 
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
