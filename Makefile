@@ -1,4 +1,4 @@
-.PHONY: build test fmt vet tidy docker-up docker-down migrate-order-up migrate-order-down migrate-payment-up migrate-payment-down
+.PHONY: build test fmt vet tidy docker-up docker-down migrate-order-up migrate-order-down migrate-payment-up migrate-payment-down fake-paystack
 
 SERVICES := ./services/api-gateway/... ./services/order-service/... ./services/payment-service/...
 
@@ -37,3 +37,9 @@ migrate-payment-up:
 
 migrate-payment-down:
 	migrate -database "$(PAYMENT_DB_URL)" -path services/payment-service/migrations down
+
+# Dev-only stand-in for the Paystack API — for local testing without
+# real test-mode credentials. Never use against anything but a local
+# PAYSTACK_BASE_URL override.
+fake-paystack:
+	go run ./scripts/fake-paystack

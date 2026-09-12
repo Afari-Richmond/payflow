@@ -9,6 +9,7 @@
 *.exe
 *.test
 *.out
+/fake-paystack
 
 # Go workspace-local files (each developer's own, not shared)
 go.work.sum

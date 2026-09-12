@@ -4,6 +4,7 @@ use (
 	./pkg/correlation
 	./pkg/events
 	./proto
+	./scripts/fake-paystack
 	./services/api-gateway
 	./services/order-service
 	./services/payment-service

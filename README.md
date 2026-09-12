@@ -268,6 +268,33 @@ Both services also expose the standard gRPC health-checking protocol
    default. Only set it if you want to point at a local fake server for
    manual testing without hitting the network at all.
 
+### Testing without real credentials
+
+`scripts/fake-paystack` is a dev-only stand-in implementing just
+`/transaction/initialize` and `/transaction/verify/:reference` — enough
+to exercise the full payment flow without a real Paystack account.
+
+```bash
+make fake-paystack                              # listens on :4123
+```
+
+Point payment-service at it via `PAYSTACK_BASE_URL` in `.env`
+(`PAYSTACK_SECRET_KEY` can stay a placeholder — the fake server never
+checks it):
+
+```
+PAYSTACK_BASE_URL=http://localhost:4123
+```
+
+Running payment-service via Docker Compose instead of directly on the
+host? Use `http://host.docker.internal:4123` so the container can
+reach the fake server on the host, then recreate the container to pick
+up the change: `make docker-up`.
+
+Never point `PAYSTACK_BASE_URL` at this outside local development — it
+does no signature checking of its own and isn't meant to hold real
+transaction data.
+
 ## Webhook Setup
 
 Paystack signs every webhook body with HMAC-**SHA512** (not SHA256)
