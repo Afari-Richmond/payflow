@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -10,6 +11,15 @@ import (
 
 	paymentv1 "github.com/Afari-Richmond/payflow/proto/payment/v1"
 )
+
+// handleWebhookTimeout bounds the outbound HandleWebhook RPC so a
+// connection hiccup can't stall a request for however long gRPC's
+// internal connect backoff takes — see order_client.go for the
+// live-verification finding that motivated this and healthCheckTimeout's
+// definition. It's longer than a typical RPC budget because
+// payment-service's webhook handling can include a real call to
+// Paystack's API (its own client has a 10s timeout).
+const handleWebhookTimeout = 15 * time.Second
 
 // PaymentClient wraps the gRPC connection to payment-service.
 type PaymentClient struct {
@@ -33,7 +43,8 @@ func NewPaymentClient(addr string) (*PaymentClient, error) {
 // untouched — see ADR 002. The gateway never inspects rawBody or
 // signature; payment-service owns verification entirely.
 func (c *PaymentClient) HandleWebhook(ctx context.Context, rawBody []byte, signature string) error {
-	ctx = withCorrelationID(ctx)
+	ctx, cancel := context.WithTimeout(withCorrelationID(ctx), handleWebhookTimeout)
+	defer cancel()
 	_, err := c.client.HandleWebhook(ctx, &paymentv1.HandleWebhookRequest{
 		RawBody:   rawBody,
 		Signature: signature,

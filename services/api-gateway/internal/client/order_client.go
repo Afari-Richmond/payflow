@@ -5,12 +5,25 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	orderv1 "github.com/Afari-Richmond/payflow/proto/order/v1"
+)
+
+// createOrderTimeout and healthCheckTimeout bound outbound gRPC calls
+// (used by both OrderClient and PaymentClient) so a connection hiccup
+// (e.g. a cold-start race with a service's listener, or a network
+// blip) can't stall a request for however long gRPC's internal
+// connect backoff takes — discovered live, when a /ready call hung
+// for ~40s with no application-level deadline in play, bounded only
+// by grpc-go's default backoff schedule.
+const (
+	createOrderTimeout = 5 * time.Second
+	healthCheckTimeout = 3 * time.Second
 )
 
 // Order is the gateway's own DTO for an order, decoupled from the
@@ -48,7 +61,8 @@ func NewOrderClient(addr string) (*OrderClient, error) {
 
 // CreateOrder calls order-service's CreateOrder RPC.
 func (c *OrderClient) CreateOrder(ctx context.Context, email string, amountMinor int64, currency string) (*Order, error) {
-	ctx = withCorrelationID(ctx)
+	ctx, cancel := context.WithTimeout(withCorrelationID(ctx), createOrderTimeout)
+	defer cancel()
 	resp, err := c.client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
 		Email:       email,
 		AmountMinor: amountMinor,
@@ -76,6 +90,8 @@ func (c *OrderClient) CreateOrder(ctx context.Context, email string, amountMinor
 // separately, since a NOT_SERVING status is a normal (non-error)
 // response.
 func (c *OrderClient) HealthCheck(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, healthCheckTimeout)
+	defer cancel()
 	resp, err := healthpb.NewHealthClient(c.conn).Check(ctx, &healthpb.HealthCheckRequest{})
 	if err != nil {
 		return err
