@@ -3,7 +3,8 @@ module github.com/Afari-Richmond/payflow/services/api-gateway
 go 1.26.5
 
 require (
-	github.com/Afari-Richmond/payflow/proto v0.0.0-20260910120653-5b04372b51d1
+	github.com/Afari-Richmond/payflow/pkg/correlation v0.0.0-20260912002828-aabbf825269f
+	github.com/Afari-Richmond/payflow/proto v0.0.0-20260912002828-aabbf825269f
 	github.com/gin-gonic/gin v1.12.0
 	github.com/swaggo/swag v1.16.6
 	google.golang.org/grpc v1.83.2
@@ -30,6 +31,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect

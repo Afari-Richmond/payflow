@@ -3,9 +3,9 @@ module github.com/Afari-Richmond/payflow/services/payment-service
 go 1.26.5
 
 require (
-	github.com/Afari-Richmond/payflow/pkg/correlation v0.0.0-20260911124647-317fd1e341cb
-	github.com/Afari-Richmond/payflow/pkg/events v0.0.0-20260911022248-46d673f3db00
-	github.com/Afari-Richmond/payflow/proto v0.0.0-20260909150225-03e3e56b9c96
+	github.com/Afari-Richmond/payflow/pkg/correlation v0.0.0-20260912002828-aabbf825269f
+	github.com/Afari-Richmond/payflow/pkg/events v0.0.0-20260912002828-aabbf825269f
+	github.com/Afari-Richmond/payflow/proto v0.0.0-20260912002828-aabbf825269f
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/rabbitmq/amqp091-go v1.14.0
