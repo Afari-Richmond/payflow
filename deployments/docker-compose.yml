@@ -34,6 +34,51 @@ services:
       timeout: 5s
       retries: 5
 
+  order-service:
+    build:
+      context: ../services/order-service
+    environment:
+      ORDER_GRPC_PORT: "9090"
+      ORDER_DATABASE_URL: postgres://payflow:payflow@postgres:5432/payflow_order?sslmode=disable
+      RABBITMQ_URL: amqp://payflow:payflow@rabbitmq:5672/
+    ports:
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: ../services/payment-service
+    environment:
+      PAYMENT_GRPC_PORT: "9091"
+      PAYMENT_DATABASE_URL: postgres://payflow:payflow@postgres:5432/payflow_payment?sslmode=disable
+      RABBITMQ_URL: amqp://payflow:payflow@rabbitmq:5672/
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      PAYSTACK_BASE_URL: ${PAYSTACK_BASE_URL:-}
+    ports:
+      - "9091:9091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: ../services/api-gateway
+    environment:
+      GATEWAY_PORT: "8080"
+      ORDER_SERVICE_ADDR: order-service:9090
+      PAYMENT_SERVICE_ADDR: payment-service:9091
+    ports:
+      - "8080:8080"
+    depends_on:
+      - order-service
+      - payment-service
+
 volumes:
   postgres_data:
   rabbitmq_data:

@@ -21,10 +21,10 @@ tidy:
 	go work sync
 
 docker-up:
-	docker compose -f deployments/docker-compose.yml up -d
+	docker compose --env-file .env -f deployments/docker-compose.yml up -d --build
 
 docker-down:
-	docker compose -f deployments/docker-compose.yml down
+	docker compose --env-file .env -f deployments/docker-compose.yml down
 
 migrate-order-up:
 	migrate -database "$(ORDER_DB_URL)" -path services/order-service/migrations up
