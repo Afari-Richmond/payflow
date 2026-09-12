@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -40,10 +41,20 @@ func (c *PaymentClient) HandleWebhook(ctx context.Context, rawBody []byte, signa
 	return err
 }
 
-// HealthCheck calls payment-service's standard gRPC health check.
+// HealthCheck calls payment-service's standard gRPC health check. The
+// Check RPC itself succeeding only means the server answered — the
+// actual verdict is in the response body, which must be inspected
+// separately, since a NOT_SERVING status is a normal (non-error)
+// response.
 func (c *PaymentClient) HealthCheck(ctx context.Context) error {
-	_, err := healthpb.NewHealthClient(c.conn).Check(ctx, &healthpb.HealthCheckRequest{})
-	return err
+	resp, err := healthpb.NewHealthClient(c.conn).Check(ctx, &healthpb.HealthCheckRequest{})
+	if err != nil {
+		return err
+	}
+	if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+		return fmt.Errorf("payment-service reported status %s", resp.GetStatus())
+	}
+	return nil
 }
 
 // Close closes the underlying gRPC connection.
